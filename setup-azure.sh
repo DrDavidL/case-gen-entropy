@@ -62,8 +62,8 @@ az acr build \
     --file Dockerfile.frontend \
     .
 
-# Step 5: Create deployment template
-echo "📝 Creating deployment template..."
+# Step 5: Create deployment template with secrets
+echo "📝 Creating secure deployment template..."
 cat > deployment-config.yaml << EOF
 apiVersion: 2021-10-01
 location: $LOCATION
@@ -137,21 +137,21 @@ tags:
   Application: MedicalCaseGenerator
 EOF
 
-echo "✅ Setup complete!"
+echo "✅ Azure infrastructure setup complete!"
+echo ""
+echo "🔧 Save these values for GitHub Actions secrets:"
+echo "ACR_SERVER=$ACR_SERVER"
+echo "ACR_USERNAME=$ACR_USERNAME"
+echo "ACR_PASSWORD=$ACR_PASSWORD"
 echo ""
 echo "📋 Next steps:"
-echo "1. Edit deployment-config.yaml and replace:"
-echo "   - REPLACE_WITH_POSTGRES_URL with your PostgreSQL connection string"
-echo "   - REPLACE_WITH_OPENAI_KEY with your OpenAI API key"
+echo "1. Create secure deployment config:"
+echo "   chmod +x create-deployment-config.sh"
+echo "   ./create-deployment-config.sh"
 echo ""
-echo "2. Deploy with:"
-echo "   az container create --resource-group $RESOURCE_GROUP --file deployment-config.yaml"
+echo "2. Deploy manually:"
+echo "   ./deploy-manual.sh"
 echo ""
 echo "3. Your app will be available at:"
 echo "   Frontend: http://$DNS_NAME.eastus.azurecontainer.io:8501"
 echo "   Backend API: http://$DNS_NAME.eastus.azurecontainer.io:8000"
-echo ""
-echo "🔧 Save these values for GitHub Actions:"
-echo "ACR_SERVER=$ACR_SERVER"
-echo "ACR_USERNAME=$ACR_USERNAME"
-echo "ACR_PASSWORD=$ACR_PASSWORD"

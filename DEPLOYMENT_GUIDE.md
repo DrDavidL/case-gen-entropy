@@ -44,14 +44,14 @@ chmod +x setup-azure.sh
 # Save the output values for GitHub secrets!
 ```
 
-### 5. Configure Environment
+### 5. Create Secure Deployment Config
 ```bash
-# Edit the generated deployment config
-nano deployment-config.yaml
+# Create deployment config with secrets (local only)
+chmod +x create-deployment-config.sh
+./create-deployment-config.sh
 
-# Replace placeholder values:
-# - REPLACE_WITH_POSTGRES_URL → your PostgreSQL URL
-# - REPLACE_WITH_OPENAI_KEY → your OpenAI API key
+# This creates deployment-config.yaml locally (git-ignored)
+# NEVER commit this file - it contains secrets!
 ```
 
 ## 🚀 Phase 3: Manual Deployment

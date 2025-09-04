@@ -3,8 +3,13 @@ import requests
 import json
 import os
 from dotenv import load_dotenv
+from auth import check_authentication, get_auth_header, logout
 
 load_dotenv()
+
+# Check authentication first
+if not check_authentication():
+    st.stop()
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
@@ -14,8 +19,13 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🏥 Medical Case Generator")
-st.markdown("Generate comprehensive medical cases with diagnostic frameworks and likelihood ratios")
+col1, col2 = st.columns([4, 1])
+with col1:
+    st.title("🏥 Medical Case Generator")
+    st.markdown("Generate comprehensive medical cases with diagnostic frameworks and likelihood ratios")
+with col2:
+    if st.button("🚪 Logout"):
+        logout()
 
 if 'generated_case' not in st.session_state:
     st.session_state.generated_case = None
@@ -52,7 +62,8 @@ with tab1:
                             json={
                                 "description": description,
                                 "primary_diagnosis": primary_diagnosis
-                            }
+                            },
+                            headers=get_auth_header()
                         )
                         
                         if response.status_code == 200:

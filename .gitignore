@@ -90,3 +90,7 @@ tmp/
 # Case generator specific
 case_exports/
 generated_cases/
+
+# Deployment files with secrets
+deployment-config.yaml
+deployment-config-*.yaml

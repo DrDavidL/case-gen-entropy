@@ -1,0 +1,70 @@
+apiVersion: 2021-10-01
+location: eastus
+name: medical-case-generator
+properties:
+  containers:
+  - name: redis
+    properties:
+      image: redis:7-alpine
+      ports:
+      - port: 6379
+      resources:
+        requests:
+          cpu: 0.5
+          memoryInGb: 0.5
+      command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      
+  - name: backend
+    properties:
+      image: YOUR_ACR_SERVER/case-generator-backend:latest
+      ports:
+      - port: 8000
+        protocol: TCP
+      environmentVariables:
+      - name: POSTGRES_URL
+        secureValue: "YOUR_POSTGRES_URL_HERE"
+      - name: OPENAI_API_KEY
+        secureValue: "YOUR_OPENAI_KEY_HERE"
+      - name: REDIS_URL
+        value: redis://localhost:6379/0
+      resources:
+        requests:
+          cpu: 1
+          memoryInGb: 2
+          
+  - name: frontend
+    properties:
+      image: YOUR_ACR_SERVER/case-generator-frontend:latest
+      ports:
+      - port: 8501
+        protocol: TCP
+      environmentVariables:
+      - name: BACKEND_URL
+        value: http://localhost:8000
+      resources:
+        requests:
+          cpu: 0.5
+          memoryInGb: 1
+
+  osType: Linux
+  restartPolicy: Always
+  ipAddress:
+    type: Public
+    ports:
+    - protocol: TCP
+      port: 8501
+    - protocol: TCP  
+      port: 8000
+    dnsNameLabel: YOUR_DNS_NAME_HERE
+
+  imageRegistryCredentials:
+  - server: YOUR_ACR_SERVER
+    username: YOUR_ACR_USERNAME
+    password: YOUR_ACR_PASSWORD
+
+tags:
+  Environment: Production
+  Application: MedicalCaseGenerator

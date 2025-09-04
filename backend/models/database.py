@@ -10,6 +10,9 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("POSTGRES_URL")
 
+if not DATABASE_URL:
+    raise ValueError("POSTGRES_URL environment variable is required")
+
 # Create engine with connection pooling and retry logic
 engine = create_engine(
     DATABASE_URL,

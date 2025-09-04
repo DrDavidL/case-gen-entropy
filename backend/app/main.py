@@ -14,6 +14,7 @@ from backend.utils.simulator_export import (
     export_to_csv, export_to_excel, create_case_summary_for_simulator,
     validate_lr_matrix_for_simulator
 )
+from backend.utils.auth import verify_credentials
 import json
 import redis
 import os
@@ -57,7 +58,7 @@ async def root():
     return {"message": "Medical Case Generator API"}
 
 @app.post("/preview-case", response_model=CasePreviewResponse)
-async def preview_case(case_input: CaseInput):
+async def preview_case(case_input: CaseInput, username: str = Depends(verify_credentials)):
     """Generate case content for preview/editing without saving to database"""
     try:
         # Generate all content using LLM
