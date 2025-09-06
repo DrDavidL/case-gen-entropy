@@ -57,6 +57,38 @@ def retry_db_operation(operation, max_retries=3, delay=1):
 async def root():
     return {"message": "Medical Case Generator API"}
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to verify environment variables and services"""
+    try:
+        # Check environment variables
+        env_vars = {
+            "OPENAI_API_KEY": "Set" if os.getenv("OPENAI_API_KEY") else "Missing",
+            "REDIS_URL": os.getenv("REDIS_URL", "Missing"),
+            "POSTGRES_URL": "Set" if os.getenv("POSTGRES_URL") else "Missing",
+            "APP_USERNAME": os.getenv("APP_USERNAME", "Missing"),
+            "APP_PASSWORD": "Set" if os.getenv("APP_PASSWORD") else "Missing"
+        }
+        
+        # Test Redis connection
+        redis_status = "Connected"
+        try:
+            redis_client.ping()
+        except Exception as e:
+            redis_status = f"Failed: {str(e)}"
+        
+        # Test OpenAI API key (without making a full request)
+        openai_status = "Set" if os.getenv("OPENAI_API_KEY") else "Missing"
+        
+        return {
+            "status": "healthy",
+            "environment_variables": env_vars,
+            "redis_connection": redis_status,
+            "openai_api_key": openai_status
+        }
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e)}
+
 @app.post("/preview-case", response_model=CasePreviewResponse)
 async def preview_case(case_input: CaseInput, username: str = Depends(verify_credentials)):
     """Generate case content for preview/editing without saving to database"""
@@ -112,7 +144,14 @@ async def preview_case(case_input: CaseInput, username: str = Depends(verify_cre
         )
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        error_details = {
+            "error": str(e),
+            "type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        }
+        print(f"Error in preview_case: {error_details}")
+        raise HTTPException(status_code=500, detail=error_details)
 
 @app.put("/edit-case")
 async def edit_case(edit_request: CaseEditRequest):
