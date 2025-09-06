@@ -13,15 +13,24 @@ DATABASE_URL = os.getenv("POSTGRES_URL")
 if not DATABASE_URL:
     raise ValueError("POSTGRES_URL environment variable is required")
 
-# Create engine with connection pooling and retry logic
+# Create engine optimized for serverless databases (Neon) with robust connection handling
 engine = create_engine(
     DATABASE_URL,
     poolclass=QueuePool,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,  # Verify connections before use
-    pool_recycle=3600,   # Recycle connections after 1 hour
-    connect_args={"sslmode": "require"} if "sslmode" not in DATABASE_URL else {}
+    pool_size=3,           # Smaller pool for serverless
+    max_overflow=7,        # Allow burst connections
+    pool_pre_ping=True,    # Verify connections before use
+    pool_recycle=1800,     # Recycle connections after 30 minutes (serverless timeout)
+    pool_timeout=30,       # Wait up to 30s for connection
+    echo=False,            # Set to True for debugging
+    connect_args={
+        "sslmode": "require",
+        "connect_timeout": 10,      # Connection timeout
+        "options": "-c statement_timeout=300000"  # 5 minute statement timeout
+    } if "sslmode" not in DATABASE_URL else {
+        "connect_timeout": 10,
+        "options": "-c statement_timeout=300000"
+    }
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

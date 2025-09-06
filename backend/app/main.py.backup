@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Base.metadata.create_all(bind=engine) # Commented out to prevent startup hangs
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Medical Case Generator API", version="1.0.0")
 
@@ -252,7 +252,7 @@ async def generate_case(case_input: CaseInput, db: Session = Depends(get_db)):
                 title=f"Case: {case_input.primary_diagnosis}",
                 description=case_input.description,
                 primary_diagnosis=case_input.primary_diagnosis,
-                case_details=case_details.model_dump()
+                case_details=case_details.dict()
             )
             db.add(case)
             db.commit()
@@ -274,7 +274,7 @@ async def generate_case(case_input: CaseInput, db: Session = Depends(get_db)):
                 framework = DiagnosticFramework(
                     case_id=case.id,
                     tier_level=tier.tier_level,
-                    diagnostic_buckets=[bucket.model_dump() for bucket in tier.buckets],
+                    diagnostic_buckets=[bucket.dict() for bucket in tier.buckets],
                     a_priori_probabilities=prob_dict
                 )
                 db.add(framework)
@@ -293,7 +293,7 @@ async def generate_case(case_input: CaseInput, db: Session = Depends(get_db)):
                     case_id=case.id,
                     framework_id=None,  # We could link to specific framework if needed
                     feature_name=feature.feature_name,
-                    feature_category=feature.feature_category,
+                    feature_category=feature.feature_category.value,
                     diagnostic_bucket=feature.diagnostic_bucket,
                     likelihood_ratio=feature.likelihood_ratio
                 )

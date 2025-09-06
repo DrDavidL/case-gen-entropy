@@ -30,17 +30,22 @@ class LLMService:
         - At least 4-5 diagnostic tests with clinical rationale
         """
         
-        response = self.client.chat.completions.parse(
+        response = self.client.chat.completions.create(
             model="gpt-4o-2024-08-06",
             messages=[
                 {"role": "system", "content": "You are an expert emergency medicine physician and medical educator. Generate realistic, educational medical cases with proper clinical detail."},
                 {"role": "user", "content": prompt}
             ],
-            response_format=CaseDetailsStructured,
+            response_format={"type": "json_schema", "json_schema": {"name": "case_details", "schema": CaseDetailsStructured.model_json_schema(), "strict": True}},
             temperature=0.7
         )
         
-        return response.choices[0].message.parsed
+        message = response.choices[0].message
+        if message.refusal:
+            raise Exception(f"Model refused request: {message.refusal}")
+        
+        import json
+        return CaseDetailsStructured.model_validate(json.loads(message.content))
     
     def generate_diagnostic_framework(self, case_details: CaseDetailsStructured, primary_diagnosis: str) -> DiagnosticFrameworkStructured:
         prompt = f"""
@@ -59,17 +64,22 @@ class LLMService:
         Each tier should have 4-6 diagnostic buckets with meaningful clinical distinctions. For the a_priori_probabilities, create a list where each entry has the bucket_name matching exactly one of the bucket names, and its corresponding probability.
         """
         
-        response = self.client.chat.completions.parse(
+        response = self.client.chat.completions.create(
             model="gpt-4o-2024-08-06",
             messages=[
                 {"role": "system", "content": "You are an expert emergency medicine physician with expertise in diagnostic reasoning and Bayesian probability. Create realistic diagnostic frameworks."},
                 {"role": "user", "content": prompt}
             ],
-            response_format=DiagnosticFrameworkStructured,
+            response_format={"type": "json_schema", "json_schema": {"name": "diagnostic_framework", "schema": DiagnosticFrameworkStructured.model_json_schema(), "strict": True}},
             temperature=0.7
         )
         
-        return response.choices[0].message.parsed
+        message = response.choices[0].message
+        if message.refusal:
+            raise Exception(f"Model refused request: {message.refusal}")
+        
+        import json
+        return DiagnosticFrameworkStructured.model_validate(json.loads(message.content))
     
     def generate_feature_likelihood_ratios(self, case_details: CaseDetailsStructured, diagnostic_framework: DiagnosticFrameworkStructured) -> FeatureLikelihoodRatiosStructured:
         # Build feature list from case details
@@ -110,14 +120,19 @@ class LLMService:
         - Strong negative predictors: LR 0.1-0.5
         """
         
-        response = self.client.chat.completions.parse(
+        response = self.client.chat.completions.create(
             model="gpt-4o-2024-08-06",
             messages=[
                 {"role": "system", "content": "You are an expert emergency medicine physician with expertise in evidence-based diagnosis and likelihood ratios. Generate realistic LRs based on medical literature."},
                 {"role": "user", "content": prompt}
             ],
-            response_format=FeatureLikelihoodRatiosStructured,
+            response_format={"type": "json_schema", "json_schema": {"name": "feature_likelihood_ratios", "schema": FeatureLikelihoodRatiosStructured.model_json_schema(), "strict": True}},
             temperature=0.7
         )
         
-        return response.choices[0].message.parsed
+        message = response.choices[0].message
+        if message.refusal:
+            raise Exception(f"Model refused request: {message.refusal}")
+        
+        import json
+        return FeatureLikelihoodRatiosStructured.model_validate(json.loads(message.content))
