@@ -1,6 +1,7 @@
 // Azure Container Apps Bicep template
 param location string = resourceGroup().location
 param environmentName string = 'medical-case-env'
+param deploymentTimestamp string = utcNow()
 param containerRegistry string = 'labdlcontainer.azurecr.io'
 param acrUsername string
 @secure()
@@ -154,6 +155,10 @@ resource backendApp 'Microsoft.App/containerApps@2022-03-01' = {
             {
               name: 'APP_PASSWORD'
               secretRef: 'app-password'
+            }
+            {
+              name: 'DEPLOYMENT_TIMESTAMP'
+              value: deploymentTimestamp
             }
           ]
         }
