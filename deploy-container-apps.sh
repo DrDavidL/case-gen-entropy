@@ -9,9 +9,9 @@ set -e
 source .env
 
 # Required variables check
-if [[ -z "$RESOURCE_GROUP" || -z "$ACR_USERNAME" || -z "$ACR_PASSWORD" || -z "$POSTGRES_URL" || -z "$OPENAI_API_KEY" ]]; then
+if [[ -z "$RESOURCE_GROUP" || -z "$ACR_USERNAME" || -z "$ACR_PASSWORD" || -z "$POSTGRES_URL" || -z "$OPENAI_API_KEY" || -z "$APP_USERNAME" || -z "$APP_PASSWORD" ]]; then
     echo "Error: Missing required environment variables in .env file"
-    echo "Required: RESOURCE_GROUP, ACR_USERNAME, ACR_PASSWORD, POSTGRES_URL, OPENAI_API_KEY"
+    echo "Required: RESOURCE_GROUP, ACR_USERNAME, ACR_PASSWORD, POSTGRES_URL, OPENAI_API_KEY, APP_USERNAME, APP_PASSWORD"
     exit 1
 fi
 
@@ -43,7 +43,9 @@ az deployment group create \
         acrUsername=$ACR_USERNAME \
         acrPassword=$ACR_PASSWORD \
         postgresUrl="$POSTGRES_URL" \
-        openaiApiKey="$OPENAI_API_KEY"
+        openaiApiKey="$OPENAI_API_KEY" \
+        appUsername="$APP_USERNAME" \
+        appPassword="$APP_PASSWORD"
 
 # Get the URLs
 echo "Getting application URLs..."

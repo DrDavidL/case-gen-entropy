@@ -9,6 +9,10 @@ param acrPassword string
 param postgresUrl string
 @secure()
 param openaiApiKey string
+@secure()
+param appUsername string
+@secure()
+param appPassword string
 
 // Container Apps Environment
 resource containerAppEnvironment 'Microsoft.App/managedEnvironments@2022-03-01' = {
@@ -94,6 +98,14 @@ resource backendApp 'Microsoft.App/containerApps@2022-03-01' = {
           name: 'acr-password'
           value: acrPassword
         }
+        {
+          name: 'app-username'
+          value: appUsername
+        }
+        {
+          name: 'app-password'
+          value: appPassword
+        }
       ]
       registries: [
         {
@@ -135,6 +147,14 @@ resource backendApp 'Microsoft.App/containerApps@2022-03-01' = {
               name: 'REDIS_URL'
               value: 'redis://redis-app:6379/0'
             }
+            {
+              name: 'APP_USERNAME'
+              secretRef: 'app-username'
+            }
+            {
+              name: 'APP_PASSWORD'
+              secretRef: 'app-password'
+            }
           ]
         }
       ]
@@ -157,6 +177,14 @@ resource frontendApp 'Microsoft.App/containerApps@2022-03-01' = {
         {
           name: 'acr-password'
           value: acrPassword
+        }
+        {
+          name: 'app-username'
+          value: appUsername
+        }
+        {
+          name: 'app-password'
+          value: appPassword
         }
       ]
       registries: [
@@ -190,6 +218,14 @@ resource frontendApp 'Microsoft.App/containerApps@2022-03-01' = {
             {
               name: 'BACKEND_URL'
               value: 'https://${backendApp.properties.configuration.ingress.fqdn}'
+            }
+            {
+              name: 'APP_USERNAME'
+              secretRef: 'app-username'
+            }
+            {
+              name: 'APP_PASSWORD'
+              secretRef: 'app-password'
             }
           ]
         }
