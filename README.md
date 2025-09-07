@@ -357,3 +357,61 @@ For issues, questions, or contributions:
 ---
 
 **Built with modern AI and cloud technologies for scalable medical education.**
+
+---
+
+## 🧩 Key Functions (Quick Summary)
+
+- Generate cases from a brief description and primary diagnosis (LLM structured outputs)
+- Edit all content interactively (presentation, buckets, probabilities, LRs)
+- Regenerate LRs strictly after bucket edits (exact bucket names per tier; invalid rows dropped)
+- Draft exports from Redis session (no DB write):
+  - JSON: case details, a priori probabilities, feature likelihood ratios
+  - Simulator: LR Matrix (CSV/Excel), Prior Probabilities (per tier), Case Summary
+- Finalize & Save to Postgres when ready; then export finalized artifacts
+
+## 🧭 Recommended Workflow
+
+1) Generate Preview → 2) Edit content and metadata → 3) Regenerate LRs (strict) if buckets changed → 4) Draft export and review → 5) Finalize to DB (optional) → 6) Finalized export
+
+Notes
+- Title and Primary Diagnosis are stored in the session and used in draft exports.
+- Exports are tier-aware; LR matrices contain only the selected tier’s buckets.
+
+## ☁️ Manual Build & Deploy to Azure Container Apps (no CI/CD)
+
+Prereqs
+- Azure CLI logged in: `az login`
+- Azure Container Registry (ACR) with admin user enabled (or use an existing one)
+- `.env` contains at minimum: `RESOURCE_GROUP`, `ACR_USERNAME`, `ACR_PASSWORD`, `POSTGRES_URL` (sslmode=require), `OPENAI_API_KEY`, `APP_USERNAME`, `APP_PASSWORD`
+
+Build images in ACR
+```bash
+# Backend
+az acr build --registry $ACR_NAME \
+  --image case-generator-backend:latest \
+  --file Dockerfile.backend .
+
+# Frontend
+az acr build --registry $ACR_NAME \
+  --image case-generator-frontend:latest \
+  --file Dockerfile.frontend .
+```
+
+Deploy Container Apps via Bicep script
+```bash
+./deploy-container-apps.sh
+
+# Script prints:
+# - Frontend URL: https://<frontend-app-fqdn>
+# - Backend URL:  https://<backend-app-fqdn>
+```
+
+Post‑deploy checks
+- Health: `curl https://<backend-fqdn>/health` (Redis/DB should be “Connected”)
+- Frontend: generate → edit → draft export → finalize → finalized export
+- Logs: `az containerapp logs show --name backend-app --resource-group $RESOURCE_GROUP --follow`
+
+Secrets & config
+- Keep secrets only in `.env` and in Azure; scripts do not echo secrets.
+- The Bicep template passes secrets via secretRef (`POSTGRES_URL`, `OPENAI_API_KEY`, `APP_USERNAME`, `APP_PASSWORD`).

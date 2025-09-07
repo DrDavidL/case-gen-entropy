@@ -1,11 +1,19 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional, Iterable
 from io import StringIO, BytesIO
+import re
+import difflib
+import logging
 
-def create_feature_lr_matrix(case_details: Dict[str, Any], 
-                           diagnostic_framework: List[Dict[str, Any]], 
-                           feature_likelihood_ratios: List[Dict[str, Any]]) -> pd.DataFrame:
+def create_feature_lr_matrix(
+    case_details: Dict[str, Any],
+    diagnostic_framework: List[Dict[str, Any]],
+    feature_likelihood_ratios: List[Dict[str, Any]],
+    tier_level: Optional[int] = None,
+    strict: bool = True,
+) -> pd.DataFrame:
+    logger = logging.getLogger(__name__)
     """
     Create a feature-LR matrix in the format expected by the simulator app.
     
@@ -14,20 +22,87 @@ def create_feature_lr_matrix(case_details: Dict[str, Any],
     - Remaining columns: Diagnostic categories with LR values
     """
     
-    # Extract all unique diagnostic buckets from all tiers
-    diagnostic_buckets = set()
+    # Determine diagnostic buckets to include
+    diagnostic_buckets_display: List[str] = []
+    if tier_level is not None:
+        # Use only the buckets from the requested tier
+        selected_tier = next((t for t in diagnostic_framework if t.get('tier_level') == tier_level), None)
+        if not selected_tier and diagnostic_framework:
+            # Fallback to first tier if requested not found
+            selected_tier = diagnostic_framework[0]
+        if selected_tier:
+            diagnostic_buckets_display = [b.get('name') for b in selected_tier.get('buckets', []) if b.get('name')]
+    # If no tier specified or no buckets found, fall back to union of all tiers
+    if not diagnostic_buckets_display:
+        seen = set()
+        for tier in diagnostic_framework:
+            for bucket in tier.get('buckets', []):
+                name = bucket.get('name')
+                if name and name not in seen:
+                    seen.add(name)
+                    diagnostic_buckets_display.append(name)
+
+    # Build normalization map for robust matching (case/whitespace-insensitive)
+    def _norm(s: str) -> str:
+        """Normalize bucket names for robust matching.
+        - lowercase
+        - trim
+        - strip optional 'tier X:' prefixes
+        - collapse internal whitespace
+        """
+        s = (s or "").strip().lower()
+        # remove leading 'tier <num>:' pattern
+        s = re.sub(r"^tier\s*\d+\s*:\s*", "", s)
+        # collapse multiple spaces
+        s = re.sub(r"\s+", " ", s)
+        return s
+
+    bucket_norm_to_display = {_norm(name): name for name in diagnostic_buckets_display}
+
+    # Also build a union map across all tiers for cross-tier projection if needed
+    union_bucket_norm_to_display: Dict[str, str] = {}
     for tier in diagnostic_framework:
-        for bucket in tier['buckets']:
-            diagnostic_buckets.add(bucket['name'])
-    
-    diagnostic_buckets = sorted(list(diagnostic_buckets))
+        for b in tier.get('buckets', []):
+            name = b.get('name') if isinstance(b, dict) else None
+            if name:
+                union_bucket_norm_to_display[_norm(name)] = name
+
+    def _closest(target: str, candidates: Iterable[str], cutoff: float = 0.5) -> Optional[str]:
+        """Return closest candidate key to target using fuzzy and token overlap."""
+        cand_list = list(candidates)
+        if not cand_list:
+            return None
+        # First try difflib
+        best = difflib.get_close_matches(target, cand_list, n=1, cutoff=cutoff)
+        if best:
+            return best[0]
+        # Token overlap (Jaccard)
+        tset = set(target.split())
+        best_key = None
+        best_score = 0.0
+        for c in cand_list:
+            cset = set(c.split())
+            if not tset or not cset:
+                continue
+            score = len(tset & cset) / len(tset | cset)
+            if score > best_score:
+                best_score = score
+                best_key = c
+        return best_key if best_score >= cutoff else None
     
     # Create feature mapping based on actual LR data, not case details
     # This ensures we only include features that have LR values
     feature_lr_map = {}
     
+    # Optionally filter LR entries to the selected tier to reduce mismatches
+    # Only filter by tier_level if LR entries actually carry that field
+    if tier_level is not None and any('tier_level' in lr for lr in feature_likelihood_ratios):
+        flrs_iter = [lr for lr in feature_likelihood_ratios if lr.get('tier_level') == tier_level]
+    else:
+        flrs_iter = feature_likelihood_ratios
+
     # Build the feature-LR mapping from the actual LR data
-    for lr in feature_likelihood_ratios:
+    for lr in flrs_iter:
         feature_name = lr['feature_name']
         diagnostic_bucket = lr['diagnostic_bucket']
         lr_value = lr['likelihood_ratio']
@@ -36,9 +111,9 @@ def create_feature_lr_matrix(case_details: Dict[str, Any],
         if lr['feature_category'] == 'history':
             standardized_feature = f"Patient Has: {feature_name.lower().replace('history:', '').replace('question:', '').strip()}"
         elif lr['feature_category'] == 'physical_exam':
-            standardized_feature = f"Physical Finding: {feature_name.lower().replace('physical exam:', '').replace('examination:', '').strip()}"
+            standardized_feature = f"Physical Finding: {feature_name.lower().replace('physical exam:', '').replace('examination:', '').replace('physical:', '').strip()}"
         elif lr['feature_category'] == 'diagnostic_workup':
-            standardized_feature = f"Test Result: {feature_name.lower().replace('diagnostic test:', '').replace('test:', '').strip()}"
+            standardized_feature = f"Test Result: {feature_name.lower().replace('diagnostic test:', '').replace('test:', '').replace('diagnostic:', '').strip()}"
         else:
             standardized_feature = f"Clinical Feature: {feature_name.strip()}"
         
@@ -46,26 +121,85 @@ def create_feature_lr_matrix(case_details: Dict[str, Any],
         if standardized_feature not in feature_lr_map:
             feature_lr_map[standardized_feature] = {}
             # Initialize all buckets to 1.0 for this feature
-            for bucket in diagnostic_buckets:
-                feature_lr_map[standardized_feature][bucket] = 1.0
+            for bucket_name in diagnostic_buckets_display:
+                feature_lr_map[standardized_feature][bucket_name] = 1.0
         
         # Set the actual LR value
-        if diagnostic_bucket in diagnostic_buckets:
-            feature_lr_map[standardized_feature][diagnostic_bucket] = round(lr_value, 2)
+        norm_bucket = _norm(diagnostic_bucket)
+        display_bucket = None
+        if norm_bucket in bucket_norm_to_display:
+            display_bucket = bucket_norm_to_display[norm_bucket]
+            # Optional: debug exact match
+            logger.debug(
+                "LR bucket exact match", extra={
+                    "diagnostic_bucket": diagnostic_bucket,
+                    "matched_bucket": display_bucket,
+                }
+            )
+        else:
+            # Fuzzy match to closest bucket name within the selected tier's buckets
+            if not strict and bucket_norm_to_display:
+                ck = _closest(norm_bucket, bucket_norm_to_display.keys(), cutoff=0.5)
+                if ck:
+                    display_bucket = bucket_norm_to_display[ck]
+                    logger.info(
+                        "Fuzzy-mapped LR bucket (within tier)",
+                        extra={
+                            "original_bucket": diagnostic_bucket,
+                            "normalized": norm_bucket,
+                            "mapped_bucket": display_bucket,
+                        },
+                    )
+            # Cross-tier projection: map to closest bucket across all tiers, then project to selected tier
+            if not strict and not display_bucket and union_bucket_norm_to_display:
+                uk = _closest(norm_bucket, union_bucket_norm_to_display.keys(), cutoff=0.5)
+                if uk:
+                    union_display = union_bucket_norm_to_display[uk]
+                    # If the union bucket exists in selected set, use directly
+                    if _norm(union_display) in bucket_norm_to_display:
+                        display_bucket = bucket_norm_to_display[_norm(union_display)]
+                    else:
+                        # Project union bucket to the closest selected bucket
+                        proj_key = _closest(_norm(union_display), bucket_norm_to_display.keys(), cutoff=0.4)
+                        if proj_key:
+                            display_bucket = bucket_norm_to_display[proj_key]
+                            logger.info(
+                                "Cross-tier mapped LR bucket",
+                                extra={
+                                    "original_bucket": diagnostic_bucket,
+                                    "normalized": norm_bucket,
+                                    "union_match": union_display,
+                                    "projected_bucket": display_bucket,
+                                },
+                            )
+            if not display_bucket:
+                logger.warning(
+                    "Unmatched LR bucket; leaving defaults at 1.0",
+                    extra={
+                        "original_bucket": diagnostic_bucket,
+                        "normalized": norm_bucket,
+                        "available_buckets": list(bucket_norm_to_display.values()),
+                    },
+                )
+        if display_bucket:
+            feature_lr_map[standardized_feature][display_bucket] = round(float(lr_value), 2)
     
     # Convert to DataFrame format
     matrix_data = []
     for feature, lr_values in feature_lr_map.items():
         row = {'Feature': feature}
-        for bucket in diagnostic_buckets:
-            row[bucket] = lr_values.get(bucket, 1.0)
+        for bucket_name in diagnostic_buckets_display:
+            row[bucket_name] = lr_values.get(bucket_name, 1.0)
         matrix_data.append(row)
     
     # Create DataFrame
     df = pd.DataFrame(matrix_data)
+    # Ensure expected columns exist even if there are no features
+    if df.empty:
+        df = pd.DataFrame(columns=['Feature', *diagnostic_buckets_display])
     
     # Ensure all LR values are positive (replace any 0s or negatives with minimum)
-    for col in diagnostic_buckets:
+    for col in diagnostic_buckets_display:
         df[col] = df[col].apply(lambda x: max(x, 0.01))  # Minimum LR of 0.01
     
     # Sort by feature name for consistency

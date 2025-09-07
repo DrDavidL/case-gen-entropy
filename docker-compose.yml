@@ -26,6 +26,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - APP_USERNAME=${APP_USERNAME}
       - APP_PASSWORD=${APP_PASSWORD}
+      - ENVIRONMENT=development
     depends_on:
       redis:
         condition: service_healthy

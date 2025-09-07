@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, JSON, DateTime, Float
+from sqlalchemy import create_engine, Column, Integer, String, Text, JSON, DateTime, Float, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
@@ -23,13 +23,13 @@ engine = create_engine(
     pool_recycle=1800,     # Recycle connections after 30 minutes (serverless timeout)
     pool_timeout=30,       # Wait up to 30s for connection
     echo=False,            # Set to True for debugging
+    # Neon pooler (PgBouncer) does not allow startup 'options'.
+    # Keep sslmode/connect_timeout only; rely on app-level timeouts instead.
     connect_args={
         "sslmode": "require",
-        "connect_timeout": 10,      # Connection timeout
-        "options": "-c statement_timeout=300000"  # 5 minute statement timeout
+        "connect_timeout": 10,
     } if "sslmode" not in DATABASE_URL else {
         "connect_timeout": 10,
-        "options": "-c statement_timeout=300000"
     }
 )
 
@@ -67,6 +67,7 @@ class FeatureLikelihoodRatio(Base):
     feature_category = Column(String)  # history, physical_exam, diagnostic_workup
     diagnostic_bucket = Column(String)
     likelihood_ratio = Column(Float)
+    tier_level = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 def get_db():
@@ -75,3 +76,14 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# Lightweight schema migration to add missing columns when running against existing DBs
+def _ensure_schema():
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE feature_likelihood_ratios ADD COLUMN IF NOT EXISTS tier_level INTEGER"))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Schema check/migration skipped: {e}")
+
+_ensure_schema()

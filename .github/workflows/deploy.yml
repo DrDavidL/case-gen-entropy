@@ -1,4 +1,4 @@
-name: Deploy to Azure Container Instances
+name: Deploy to Azure Container Apps
 
 on:
   push:
@@ -9,13 +9,13 @@ on:
 
 env:
   RESOURCE_GROUP: medical-case-generator-rg
-  CONTAINER_GROUP_NAME: medical-case-generator
   LOCATION: eastus
+  ENVIRONMENT_NAME: medical-case-env
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -34,8 +34,8 @@ jobs:
           --image case-generator-backend:latest \
           --file Dockerfile.backend \
           .
-        
-        # Build and push frontend  
+
+        # Build and push frontend
         az acr build \
           --registry ${{ secrets.ACR_NAME }} \
           --image case-generator-frontend:${{ github.sha }} \
@@ -43,108 +43,31 @@ jobs:
           --file Dockerfile.frontend \
           .
 
-    - name: Create deployment configuration
+    - name: Deploy Container Apps via Bicep
       run: |
-        cat > deployment.yaml << EOF
-        apiVersion: 2021-10-01
-        location: ${{ env.LOCATION }}
-        name: ${{ env.CONTAINER_GROUP_NAME }}
-        properties:
-          containers:
-          - name: redis
-            properties:
-              image: redis:7-alpine
-              ports:
-              - port: 6379
-              resources:
-                requests:
-                  cpu: 0.5
-                  memoryInGb: 0.5
-              command:
-              - redis-server
-              - --appendonly
-              - "yes"
-              
-          - name: backend
-            properties:
-              image: ${{ secrets.ACR_NAME }}.azurecr.io/case-generator-backend:${{ github.sha }}
-              ports:
-              - port: 8000
-                protocol: TCP
-              environmentVariables:
-              - name: POSTGRES_URL
-                secureValue: "${{ secrets.POSTGRES_URL }}"
-              - name: OPENAI_API_KEY
-                secureValue: "${{ secrets.OPENAI_API_KEY }}"
-              - name: REDIS_URL
-                value: redis://localhost:6379/0
-              resources:
-                requests:
-                  cpu: 1
-                  memoryInGb: 2
-                  
-          - name: frontend
-            properties:
-              image: ${{ secrets.ACR_NAME }}.azurecr.io/case-generator-frontend:${{ github.sha }}
-              ports:
-              - port: 8501
-                protocol: TCP
-              environmentVariables:
-              - name: BACKEND_URL
-                value: http://localhost:8000
-              resources:
-                requests:
-                  cpu: 0.5
-                  memoryInGb: 1
+        # Create resource group (idempotent)
+        az group create --name ${{ env.RESOURCE_GROUP }} --location ${{ env.LOCATION }}
 
-          osType: Linux
-          restartPolicy: Always
-          ipAddress:
-            type: Public
-            ports:
-            - protocol: TCP
-              port: 8501
-            - protocol: TCP  
-              port: 8000
-            dnsNameLabel: medical-case-gen-${{ github.run_number }}
+        # Deploy container apps environment + apps
+        az deployment group create \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --template-file container-apps-bicep.bicep \
+          --parameters \
+            location=${{ env.LOCATION }} \
+            environmentName=${{ env.ENVIRONMENT_NAME }} \
+            containerRegistry=${{ secrets.ACR_NAME }}.azurecr.io \
+            acrUsername=${{ secrets.ACR_USERNAME }} \
+            acrPassword=${{ secrets.ACR_PASSWORD }} \
+            postgresUrl='${{ secrets.POSTGRES_URL }}' \
+            openaiApiKey='${{ secrets.OPENAI_API_KEY }}' \
+            appUsername='${{ secrets.APP_USERNAME }}' \
+            appPassword='${{ secrets.APP_PASSWORD }}'
 
-          imageRegistryCredentials:
-          - server: ${{ secrets.ACR_NAME }}.azurecr.io
-            username: ${{ secrets.ACR_USERNAME }}
-            password: ${{ secrets.ACR_PASSWORD }}
-
-        tags:
-          Environment: Production
-          Application: MedicalCaseGenerator
-          Version: ${{ github.sha }}
-        EOF
-
-    - name: Deploy to Azure Container Instances
+    - name: Show deployed URLs
       run: |
-        # Delete existing container group if it exists
-        az container delete \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --name ${{ env.CONTAINER_GROUP_NAME }} \
-          --yes || true
-        
-        # Create new container group
-        az container create \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --file deployment.yaml
-
-    - name: Get deployment info
-      run: |
-        # Wait for deployment
-        sleep 60
-        
-        # Get FQDN
-        FQDN=$(az container show \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --name ${{ env.CONTAINER_GROUP_NAME }} \
-          --query "ipAddress.fqdn" \
-          --output tsv)
-        
-        echo "🎉 Deployment complete!"
-        echo "Frontend URL: http://$FQDN:8501"
-        echo "Backend URL: http://$FQDN:8000"
-        echo "API Docs: http://$FQDN:8000/docs"
+        az extension add --name containerapp --upgrade -y
+        FRONTEND_FQDN=$(az containerapp show --name frontend-app --resource-group ${{ env.RESOURCE_GROUP }} --query "properties.configuration.ingress.fqdn" -o tsv)
+        BACKEND_FQDN=$(az containerapp show --name backend-app --resource-group ${{ env.RESOURCE_GROUP }} --query "properties.configuration.ingress.fqdn" -o tsv)
+        echo "Deployment complete"
+        echo "Frontend URL: https://$FRONTEND_FQDN"
+        echo "Backend URL: https://$BACKEND_FQDN"

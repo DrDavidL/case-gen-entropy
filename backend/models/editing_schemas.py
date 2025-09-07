@@ -36,15 +36,34 @@ class CaseEditRequest(BaseModel):
     case_details: Optional[EditableCaseDetails] = None
     diagnostic_framework: Optional[List[EditableDiagnosticTier]] = None
     feature_likelihood_ratios: Optional[List[EditableFeatureLR]] = None
+    # Optional draft metadata updates
+    title: Optional[str] = None
+    description: Optional[str] = None
+    primary_diagnosis: Optional[str] = None
 
 class CaseSaveRequest(BaseModel):
     session_id: str
     title: Optional[str] = None
     description: str
     primary_diagnosis: str
+    case_details: Optional[Dict[str, Any]] = None
+    diagnostic_framework: Optional[List[Dict[str, Any]]] = None
+    feature_likelihood_ratios: Optional[List[Dict[str, Any]]] = None
 
 class SessionData(BaseModel):
     case_details: Dict[str, Any]
     diagnostic_framework: List[Dict[str, Any]]
     feature_likelihood_ratios: List[Dict[str, Any]]
     original_input: CaseInput
+    # Optional draft metadata stored during editing
+    title: Optional[str] = None
+    description: Optional[str] = None
+    primary_diagnosis: Optional[str] = None
+
+class RegenerateLRRequest(BaseModel):
+    session_id: str
+    case_details: Optional[Dict[str, Any]] = None
+    diagnostic_framework: Optional[List[Dict[str, Any]]] = None
+
+class RegenerateLRResponse(BaseModel):
+    feature_likelihood_ratios: List[Dict[str, Any]]

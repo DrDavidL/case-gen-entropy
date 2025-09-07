@@ -8,6 +8,9 @@ set -e
 # Load environment variables
 source .env
 
+# Set Azure-specific Redis URL
+REDIS_URL="redis://redis-app.medical-case-env.internal:6379/0"
+
 # Required variables check
 if [[ -z "$RESOURCE_GROUP" || -z "$ACR_USERNAME" || -z "$ACR_PASSWORD" || -z "$POSTGRES_URL" || -z "$OPENAI_API_KEY" || -z "$APP_USERNAME" || -z "$APP_PASSWORD" ]]; then
     echo "Error: Missing required environment variables in .env file"
@@ -21,6 +24,7 @@ echo "=== Deploying Medical Case Generator to Azure Container Apps ==="
 LOCATION=${LOCATION:-eastus}
 ENVIRONMENT_NAME=${ENVIRONMENT_NAME:-medical-case-env}
 CONTAINER_REGISTRY=${CONTAINER_REGISTRY:-labdlcontainer.azurecr.io}
+REDIS_URL=${REDIS_URL:-"redis://redis-app.medical-case-env.internal:6379/0"}
 
 echo "Resource Group: $RESOURCE_GROUP"
 echo "Location: $LOCATION"  

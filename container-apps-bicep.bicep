@@ -6,7 +6,7 @@ param containerRegistry string = 'labdlcontainer.azurecr.io'
 param acrUsername string
 @secure()
 param acrPassword string
-@secure() 
+@secure()
 param postgresUrl string
 @secure()
 param openaiApiKey string
@@ -146,7 +146,7 @@ resource backendApp 'Microsoft.App/containerApps@2022-03-01' = {
             }
             {
               name: 'REDIS_URL'
-              value: 'redis://redis-app:6379/0'
+              value: 'redis://redis-app.${environmentName}.internal:6379/0'
             }
             {
               name: 'APP_USERNAME'
@@ -159,6 +159,10 @@ resource backendApp 'Microsoft.App/containerApps@2022-03-01' = {
             {
               name: 'DEPLOYMENT_TIMESTAMP'
               value: deploymentTimestamp
+            }
+            {
+              name: 'ENVIRONMENT'
+              value: 'production'
             }
           ]
         }

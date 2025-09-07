@@ -15,13 +15,13 @@ class LLMService:
     def __init__(self):
         self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
-    def generate_case_details(self, description: str, primary_diagnosis: str) -> CaseDetailsStructured:
+    def generate_case_details(self, description: str, primary_diagnosis: str, model: str = "gpt-4o-2024-08-06", temperature: float = 0.7) -> CaseDetailsStructured:
         prompt = f"""
         Based on the following brief case description and primary diagnosis, generate a comprehensive medical case.
-
+ 
         Brief Description: {description}
         Primary Diagnosis: {primary_diagnosis}
-
+ 
         Create a realistic and educationally valuable case for emergency medicine training. Include:
         - A detailed case presentation with patient demographics, chief complaint, and initial presentation
         - Patient personality and communication style
@@ -31,13 +31,13 @@ class LLMService:
         """
         
         response = self.client.chat.completions.create(
-            model="gpt-4o-2024-08-06",
+            model=model,
             messages=[
                 {"role": "system", "content": "You are an expert emergency medicine physician and medical educator. Generate realistic, educational medical cases with proper clinical detail."},
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_schema", "json_schema": {"name": "case_details", "schema": CaseDetailsStructured.model_json_schema(), "strict": True}},
-            temperature=0.7
+            temperature=temperature
         )
         
         message = response.choices[0].message
@@ -47,7 +47,7 @@ class LLMService:
         import json
         return CaseDetailsStructured.model_validate(json.loads(message.content))
     
-    def generate_diagnostic_framework(self, case_details: CaseDetailsStructured, primary_diagnosis: str) -> DiagnosticFrameworkStructured:
+    def generate_diagnostic_framework(self, case_details: CaseDetailsStructured, primary_diagnosis: str, model: str = "gpt-4o-mini", temperature: float = 0.7) -> DiagnosticFrameworkStructured:
         prompt = f"""
         Based on the following case details and primary diagnosis, create a tiered diagnostic framework with 3 tiers of progressively refined diagnostic categories.
 
@@ -65,13 +65,13 @@ class LLMService:
         """
         
         response = self.client.chat.completions.create(
-            model="gpt-4o-2024-08-06",
+            model=model,
             messages=[
                 {"role": "system", "content": "You are an expert emergency medicine physician with expertise in diagnostic reasoning and Bayesian probability. Create realistic diagnostic frameworks."},
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_schema", "json_schema": {"name": "diagnostic_framework", "schema": DiagnosticFrameworkStructured.model_json_schema(), "strict": True}},
-            temperature=0.7
+            temperature=temperature
         )
         
         message = response.choices[0].message
@@ -81,7 +81,7 @@ class LLMService:
         import json
         return DiagnosticFrameworkStructured.model_validate(json.loads(message.content))
     
-    def generate_feature_likelihood_ratios(self, case_details: CaseDetailsStructured, diagnostic_framework: DiagnosticFrameworkStructured) -> FeatureLikelihoodRatiosStructured:
+    def generate_feature_likelihood_ratios(self, case_details: CaseDetailsStructured, diagnostic_framework: DiagnosticFrameworkStructured, model: str = "gpt-4o-mini", temperature: float = 0.7) -> FeatureLikelihoodRatiosStructured:
         # Build feature list from case details
         features_summary = []
         for hq in case_details.history_questions:
@@ -91,11 +91,14 @@ class LLMService:
         for dt in case_details.diagnostic_workup:
             features_summary.append(f"Diagnostic: {dt.test}")
             
-        # Build diagnostic buckets summary
+        # Build diagnostic buckets summary and strict lists per tier
         buckets_summary = []
+        allowed_buckets_by_tier = {}
         for tier in diagnostic_framework.tiers:
-            for bucket in tier.buckets:
-                buckets_summary.append(f"Tier {tier.tier_level}: {bucket.name}")
+            buckets = [bucket.name for bucket in tier.buckets]
+            allowed_buckets_by_tier[tier.tier_level] = buckets
+            for bucket in buckets:
+                buckets_summary.append(f"Tier {tier.tier_level}: {bucket}")
 
         prompt = f"""
         Generate feature likelihood ratios for this medical case based on evidence-based medicine.
@@ -103,8 +106,14 @@ class LLMService:
         Available Features:
         {chr(10).join(features_summary)}
 
-        Available Diagnostic Buckets:
+        Available Diagnostic Buckets (use EXACT names, case-sensitive):
         {chr(10).join(buckets_summary)}
+
+        STRICT RULES:
+        - For each LR item, set 'tier_level' to 1, 2, or 3.
+        - Set 'diagnostic_bucket' to EXACTLY one of the bucket names listed for that tier.
+        - Do NOT invent new bucket names and do NOT include 'Tier X:' prefixes in 'diagnostic_bucket'.
+        - Include features from all categories: history, physical_exam, diagnostic_workup.
 
         For each feature, generate likelihood ratios for the most relevant diagnostic buckets across different tiers. Focus on:
         - Clinically meaningful likelihood ratios (avoid ratios too close to 1.0)
@@ -121,13 +130,13 @@ class LLMService:
         """
         
         response = self.client.chat.completions.create(
-            model="gpt-4o-2024-08-06",
+            model=model,
             messages=[
                 {"role": "system", "content": "You are an expert emergency medicine physician with expertise in evidence-based diagnosis and likelihood ratios. Generate realistic LRs based on medical literature."},
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_schema", "json_schema": {"name": "feature_likelihood_ratios", "schema": FeatureLikelihoodRatiosStructured.model_json_schema(), "strict": True}},
-            temperature=0.7
+            temperature=temperature
         )
         
         message = response.choices[0].message
@@ -135,4 +144,21 @@ class LLMService:
             raise Exception(f"Model refused request: {message.refusal}")
         
         import json
-        return FeatureLikelihoodRatiosStructured.model_validate(json.loads(message.content))
+        result = FeatureLikelihoodRatiosStructured.model_validate(json.loads(message.content))
+
+        # Post-validate strictly against allowed buckets per tier (no fuzzy mapping)
+        filtered = []
+        dropped = 0
+        for lr in result.feature_likelihood_ratios:
+            tier = lr.tier_level
+            allowed = set(allowed_buckets_by_tier.get(tier, []))
+            if lr.diagnostic_bucket in allowed:
+                filtered.append(lr)
+            else:
+                dropped += 1
+        if dropped:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Dropped {dropped} LR items due to non-matching diagnostic_bucket against allowed tier buckets"
+            )
+        return FeatureLikelihoodRatiosStructured(feature_likelihood_ratios=filtered)

@@ -1,90 +1,57 @@
-# Azure Deployment Guide
+# Azure Deployment Guide (Container Apps)
 
-## Option 1: Azure Container Instances (Recommended for MVP)
+This project deploys to Azure Container Apps using a Bicep template and GitHub Actions. Legacy Azure Container Instances (ACI) instructions have been deprecated.
 
-### Prerequisites:
-1. **Azure CLI**: `az login`
-2. **Docker installed locally**
-3. **Azure Container Registry** (or use Docker Hub)
+## Prerequisites
+- Azure subscription with rights to create Resource Groups and Container Apps
+- Azure CLI: `az login`
+- Azure Container Registry (ACR)
 
-### Quick Setup:
-
+## One‑Time Setup
 ```bash
-# 1. Create resource group
+# 1) Create resource group (idempotent)
 az group create --name medical-case-generator-rg --location eastus
 
-# 2. Create Azure Container Registry
-az acr create --resource-group medical-case-generator-rg --name medcasegen --sku Basic --admin-enabled true
-
-# 3. Get ACR credentials
-az acr credential show --name medcasegen
-
-# 4. Build and push images
-az acr build --registry medcasegen --image case-generator-backend:latest -f Dockerfile.backend .
-az acr build --registry medcasegen --image case-generator-frontend:latest -f Dockerfile.frontend .
-
-# 5. Deploy with container group
-az container create \
-  --resource-group medical-case-generator-rg \
-  --name medical-case-generator \
-  --yaml container-group.yaml
+# 2) Create ACR if you don't have one
+az acr create --resource-group medical-case-generator-rg --name <your_acr_name> --sku Basic --admin-enabled true
 ```
 
-### Required GitHub Secrets:
-- `ACR_USERNAME`: Azure Container Registry username
-- `ACR_PASSWORD`: Azure Container Registry password  
-- `POSTGRES_URL`: Your external PostgreSQL connection string
-- `OPENAI_API_KEY`: Your OpenAI API key
+## GitHub Secrets (required)
+- `AZURE_CREDENTIALS`: JSON for a Service Principal with `clientId`, `clientSecret`, `subscriptionId`, `tenantId`
+- `ACR_NAME`: Your ACR name (without `.azurecr.io`)
+- `ACR_USERNAME`: ACR username
+- `ACR_PASSWORD`: ACR password
+- `POSTGRES_URL`: PostgreSQL connection string (include `sslmode=require`)
+- `OPENAI_API_KEY`: OpenAI API key
+- `APP_USERNAME`, `APP_PASSWORD`: App auth credentials
 
----
+These are consumed by `.github/workflows/deploy.yml` and passed to the Bicep template as secrets.
 
-## Option 2: Azure App Service (Alternative)
+## Deploy Pipeline (GitHub Actions)
+On push to `main`, the workflow:
+- Builds backend and frontend images in ACR
+- Deploys Container Apps environment and apps via `container-apps-bicep.bicep`
+- Outputs frontend and backend URLs
 
-### For direct GitHub deployment without Docker:
-
-1. **Create App Service Plan**:
+## Manual Deploy (alternative)
+You can also deploy locally using the provided script:
 ```bash
-az appservice plan create --name medical-case-plan --resource-group medical-case-generator-rg --sku B1 --is-linux
+# Ensure .env contains non-secret parameters and required secrets locally
+./deploy-container-apps.sh
 ```
 
-2. **Create Web Apps**:
-```bash
-# Backend
-az webapp create --resource-group medical-case-generator-rg --plan medical-case-plan --name medical-case-backend --runtime "PYTHON|3.11"
-
-# Frontend  
-az webapp create --resource-group medical-case-generator-rg --plan medical-case-plan --name medical-case-frontend --runtime "PYTHON|3.11"
+## Architecture
 ```
-
-3. **Configure GitHub Actions deployment**:
-   - Enable GitHub Actions in Azure portal
-   - Add secrets for database connections
-
----
-
-## Cost Comparison:
-
-| Service | Monthly Cost (Estimated) | Pros | Cons |
-|---------|-------------------------|------|------|
-| **Container Instances** | $20-50 | Easy scaling, multi-service | Pay per second |
-| **App Service Basic** | $55/month | Integrated CI/CD | Single service per app |
-| **Container Apps** | $10-30 | Serverless scaling | More complex setup |
-
----
-
-## Recommended Architecture:
-
-```
-GitHub Actions → Azure Container Registry → Azure Container Instances
+GitHub Actions → Azure Container Registry → Azure Container Apps (redis-app, backend-app, frontend-app)
      ↓
-[Backend Container] ← → [Redis Container] ← → [Frontend Container]
+[Backend] ← → [Redis] ← → [Frontend]
      ↓
 [External PostgreSQL]
 ```
 
-## Environment Variables Needed:
+## Environment Variables
 
-- `POSTGRES_URL`: Your external PostgreSQL URL
-- `OPENAI_API_KEY`: OpenAI API key  
-- `REDIS_URL`: Internal Redis connection (handled by Docker)
-- `BACKEND_URL`: Backend service URL (for frontend)
+- `POSTGRES_URL`: External PostgreSQL URL
+- `OPENAI_API_KEY`: OpenAI API key
+- `REDIS_URL`: Set via Bicep to internal DNS `redis://redis-app.<env>.internal:6379/0`
+- `BACKEND_URL`: Provided to frontend as `https://<backend fqdn>`
