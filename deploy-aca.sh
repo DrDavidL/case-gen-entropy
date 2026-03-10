@@ -117,6 +117,7 @@ az containerapp create \
     --environment $ENVIRONMENT \
     --image redis:7-alpine \
     --target-port 6379 \
+    --exposed-port 6379 \
     --ingress internal \
     --transport tcp \
     --cpu 0.25 --memory 0.5Gi \
