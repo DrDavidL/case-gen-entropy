@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Medical Case Generator: an AI-powered system that creates educational emergency medicine cases with tiered diagnostic frameworks and evidence-based likelihood ratios. Supports two output formats: **Sim-Ready** (default, writes to a simulator-compatible database) and **Beta** (full LR/entropy schema). Backend is FastAPI, frontend is Streamlit, deployed via Docker to Azure Container Instances.
+Medical Case Generator: an AI-powered system that creates educational emergency medicine cases with tiered diagnostic frameworks and evidence-based likelihood ratios. Supports two output formats: **Sim-Ready** (default, writes to a simulator-compatible database) and **Beta** (full LR/entropy schema). Backend is FastAPI, frontend is Streamlit, deployed via Docker to Azure Container Apps.
 
 ## Architecture
 
@@ -116,11 +116,34 @@ python start_frontend.py       # Streamlit on :8501
 # Docker
 docker compose up --build      # All services (Redis, backend, frontend)
 
-# Deploy to Azure
-./setup-azure.sh               # One-time infra setup
-./create-deployment-config.sh  # Generate secrets config (local only)
-./deploy-manual.sh             # Deploy to ACI
+# Deploy to Azure Container Apps
+./deploy-aca.sh                # First-time setup: creates RG, ACR, env, deploys all 3 apps
+./deploy-aca.sh redeploy       # Rebuild images + update running apps after code changes
+
+# Tear down Azure resources
+az group delete --name casegen-rg --yes
 ```
+
+## Azure Container Apps Deployment
+
+**Resource naming**: `casegen-rg` (resource group), `casegenacr` (ACR), `casegen-env` (environment)
+
+**Apps**:
+| App | Ingress | CPU/Mem | Purpose |
+|-----|---------|---------|---------|
+| `casegen-redis` | internal (TCP 6379) | 0.25 / 0.5Gi | Session cache |
+| `casegen-backend` | external (HTTP 8000) | 1.0 / 2.0Gi | FastAPI API |
+| `casegen-frontend` | external (HTTP 8501) | 0.5 / 1.0Gi | Streamlit UI |
+
+**URLs**:
+- Frontend: `https://casegen-frontend.greenbush-b78bdd23.eastus.azurecontainerapps.io`
+- Backend: `https://casegen-backend.greenbush-b78bdd23.eastus.azurecontainerapps.io`
+
+**Secrets**: `OPENAI_API_KEY`, `POSTGRES_URL`, `APP_PASSWORD` are stored as Container Apps secrets (referenced via `secretref:`). Not passed as plaintext env vars.
+
+**Redeploy workflow**: `./deploy-aca.sh redeploy` rebuilds both images in ACR and updates the container apps. No need to recreate the environment or Redis.
+
+**Legacy ACI scripts** (`setup-azure.sh`, `deploy-manual.sh`, `create-deployment-config.sh`) are kept for reference but the active deployment uses Container Apps via `deploy-aca.sh`.
 
 ## API Endpoints (Auth Required = *)
 
@@ -149,7 +172,7 @@ docker compose up --build      # All services (Redis, backend, frontend)
 - `POSTGRES_URL_SIM_READY` must be set for sim-ready format to work. Without it, `get_sim_ready_db()` raises `ValueError`. The env var is read at import time — restart the backend after changing `.env`.
 - The sim-ready DB already has a `case_details` table with existing data. `SimReadyBase.metadata.create_all()` uses `checkfirst=True` by default and won't alter existing tables.
 - `_sim_ready_to_case_details()` maps `paragraph_summary` -> `presentation` and `patient_approach.communication_style` -> `patient_personality`. This adapter is what lets the unchanged framework/LR pipeline work with sim-ready data.
-- `deployment-config.yaml` contains secrets and is git-ignored. Use the template or GitHub Actions secrets.
+- `deployment-config.yaml` (ACI legacy) and `.env` contain secrets and are git-ignored.
 - The frontend finalize-case call must include auth headers (`get_auth_header()`).
 - Database retry logic (`retry_db_operation`) only handles SSL reconnection errors — other DB errors propagate immediately.
 - Probability distributions for each tier must sum to 1.0; validation happens at export time, not generation time.

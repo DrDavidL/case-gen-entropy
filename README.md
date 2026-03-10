@@ -185,6 +185,7 @@ case-gen-entropy/
 ├── Dockerfile.backend
 ├── Dockerfile.frontend
 ├── docker-compose.yml
+├── deploy-aca.sh                    # Azure Container Apps deployment script
 ├── requirements.txt
 ├── start_backend.py
 ├── start_frontend.py
@@ -194,28 +195,50 @@ case-gen-entropy/
 └── DEPLOYMENT_GUIDE.md
 ```
 
-## Deployment (Azure)
+## Deployment (Azure Container Apps)
 
-See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for full instructions. Summary:
+Deployed to **Azure Container Apps** with 3 apps: Redis (internal), Backend (external), Frontend (external).
+
+### First-time setup
+
+Requires Azure CLI (`az login`) and a `.env` file with `OPENAI_API_KEY` and `POSTGRES_URL`.
 
 ```bash
-./setup-azure.sh                    # Create Azure infrastructure
-./create-deployment-config.sh       # Generate local secrets config
-./deploy-manual.sh                  # Deploy to Azure Container Instances
+./deploy-aca.sh                     # Creates resource group, ACR, environment, deploys all apps
 ```
 
-CI/CD via GitHub Actions deploys automatically on push to `main`. See `.github/workflows/deploy.yml`.
+This creates:
+- **Resource group**: `casegen-rg`
+- **Container registry**: `casegenacr` (images built in the cloud via ACR, no local Docker needed)
+- **Environment**: `casegen-env` with Log Analytics
+- **3 container apps**: `casegen-redis`, `casegen-backend`, `casegen-frontend`
 
-**Estimated cost**: ~$30-55/month on Azure Container Instances.
+### Redeploy after code changes
+
+```bash
+./deploy-aca.sh redeploy            # Rebuild images in ACR + update running apps
+```
+
+### Live URLs
+
+- **Frontend**: https://casegen-frontend.greenbush-b78bdd23.eastus.azurecontainerapps.io
+- **Backend API**: https://casegen-backend.greenbush-b78bdd23.eastus.azurecontainerapps.io
+- **API docs**: https://casegen-backend.greenbush-b78bdd23.eastus.azurecontainerapps.io/docs
+
+### Tear down
+
+```bash
+az group delete --name casegen-rg --yes   # Deletes everything
+```
 
 ## Security
 
 See [SECURITY_GUIDE.md](SECURITY_GUIDE.md). Key points:
 
-- `deployment-config.yaml` and `.env` are git-ignored (contain secrets)
+- `.env` is git-ignored (contains secrets)
+- Secrets (`OPENAI_API_KEY`, `POSTGRES_URL`, `APP_PASSWORD`) stored as Azure Container Apps secrets, not plaintext env vars
 - All mutating API endpoints require HTTP Basic Auth
 - Database connections use SSL (`sslmode=require`)
-- Use GitHub Secrets for CI/CD, never commit credentials
 
 ## License
 
