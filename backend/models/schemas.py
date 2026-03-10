@@ -5,6 +5,7 @@ from datetime import datetime
 class CaseInput(BaseModel):
     description: str
     primary_diagnosis: str
+    output_format: str = "sim_ready"  # "sim_ready" (default) or "beta"
 
 class CaseDetails(BaseModel):
     presentation: str
@@ -38,3 +39,8 @@ class CaseOutputFiles(BaseModel):
     case_details_json: Dict[str, Any]
     a_priori_probabilities_json: Dict[str, Any]
     feature_likelihood_ratios_json: Dict[str, Any]
+
+class SimReadyCaseResponse(BaseModel):
+    case_id: int
+    saved_name: str
+    output_format: str = "sim_ready"
