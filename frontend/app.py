@@ -424,6 +424,29 @@ with tab2:
                 except requests.exceptions.RequestException as e:
                     st.error(f"Connection error: {str(e)}")
 
+    elif st.session_state.generated_case and not st.session_state.editing_mode:
+        # Case was just saved — show confirmation
+        case = st.session_state.generated_case
+        case_id = case.get("case_id", "")
+        is_sim_ready = st.session_state.output_format == "sim_ready"
+
+        st.header("Case Saved Successfully")
+        if is_sim_ready:
+            st.success(f"**{case.get('saved_name', 'Case')}** saved to the simulator database (ID: {case_id}).")
+            st.info("Go to **View Final Case** to see the full content, or **Export Files** to download.")
+        else:
+            st.success(f"Case saved to database (ID: {case_id}).")
+            st.info("Go to **View Final Case** to review, or **Export Files** to download.")
+
+        if st.button("Generate Another Case", type="primary"):
+            st.session_state.generated_case = None
+            st.session_state.session_id = None
+            st.session_state.editing_mode = False
+            # Clear sim-ready editing state
+            for key in ["sim_rendered_content", "sim_custom_input", "sim_custom_evaluation",
+                        "sim_allow_orders", "sim_learner_tasks", "sim_image_links"]:
+                st.session_state.pop(key, None)
+            st.rerun()
     else:
         st.info("No case in editing mode. Generate a case preview first.")
 
@@ -435,8 +458,31 @@ with tab3:
         st.header(f"Final Case (ID: {case.get('case_id', 'Preview')})")
 
         if is_sim_ready_view:
-            st.success(f"Sim-ready case saved: **{case.get('saved_name', '')}**")
-            st.info("This case has been saved to the simulator database. Use the sim-ready endpoints to retrieve it.")
+            st.success(f"Sim-ready case saved: **{case.get('saved_name', '')}** (ID: {case.get('case_id', '')})")
+
+            # Fetch and display the full case from the sim-ready DB
+            try:
+                sim_resp = requests.get(f"{BACKEND_URL}/sim-ready/case/{case.get('case_id')}")
+                if sim_resp.status_code == 200:
+                    sim_case = sim_resp.json()
+
+                    with st.expander("Case Content", expanded=True):
+                        st.markdown(sim_case.get("content", ""))
+
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        with st.expander("Custom Input", expanded=False):
+                            st.json(sim_case.get("custom_input", {}))
+                        with st.expander("Custom Evaluation", expanded=False):
+                            st.json(sim_case.get("custom_evaluation", {}))
+                    with col_b:
+                        with st.expander("Learner Tasks", expanded=False):
+                            st.markdown(sim_case.get("learner_tasks", ""))
+                        st.write(f"**Allow Orders:** {sim_case.get('allow_orders', True)}")
+                else:
+                    st.error(f"Could not load case: {sim_resp.text}")
+            except requests.exceptions.RequestException as e:
+                st.error(f"Connection error: {str(e)}")
         else:
             col1, col2 = st.columns([2, 1])
 
