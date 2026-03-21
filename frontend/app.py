@@ -35,6 +35,8 @@ if 'editing_mode' not in st.session_state:
     st.session_state.editing_mode = False
 if 'output_format' not in st.session_state:
     st.session_state.output_format = "sim_ready"
+if 'editing_existing_case_id' not in st.session_state:
+    st.session_state.editing_existing_case_id = None
 
 tab1, tab2, tab3, tab4 = st.tabs(["Generate Case", "Edit Case", "View Final Case", "Export Files"])
 
@@ -104,7 +106,19 @@ with tab2:
         is_sim_ready = st.session_state.output_format == "sim_ready"
 
         st.header("Edit Case Content")
-        st.info(f"Output format: **{'Sim-Ready' if is_sim_ready else 'Beta'}**. Review and modify before saving.")
+        if st.session_state.get("editing_existing_case_id"):
+            st.info(f"Editing existing case **ID {st.session_state.editing_existing_case_id}**. Make changes and click **Update Case in Database**.")
+        else:
+            st.info(f"Output format: **{'Sim-Ready' if is_sim_ready else 'Beta'}**. Review and modify before saving.")
+
+        # Editable case name
+        if is_sim_ready:
+            edited_title = st.text_input(
+                "Case Name",
+                value=case.get("case_details", {}).get("case_title", "Case"),
+                key="edit_case_title",
+            )
+            case["case_details"]["case_title"] = edited_title
 
         # --- Sim-Ready: editable content and sim fields ---
         if is_sim_ready:
@@ -235,6 +249,10 @@ with tab2:
             st.session_state.sim_learner_tasks = learner_tasks
 
         # --- Common: Case details editing (beta shows all, sim-ready shows LR pipeline fields) ---
+        # Hide LR pipeline sections when editing an existing case loaded from DB
+        # (structured data was not persisted for sim-ready cases)
+        is_loaded_from_db = st.session_state.get("editing_existing_case_id") is not None
+
         if not is_sim_ready:
             st.subheader("Case Details")
             with st.expander("Edit Case Presentation", expanded=True):
@@ -252,122 +270,125 @@ with tab2:
                     key="edit_personality"
                 )
 
-        # History Questions Editing (both formats — needed for LR pipeline)
-        st.subheader("History Questions (LR Pipeline)")
-        with st.expander("Edit History Questions", expanded=False):
-            history_questions = []
-            for i, hq in enumerate(case['case_details']['history_questions']):
-                col1, col2 = st.columns(2)
-                with col1:
-                    question = st.text_input(f"Question {i+1}", value=hq['question'], key=f"hq_{i}")
-                with col2:
-                    answer = st.text_input(f"Expected Answer {i+1}", value=hq['expected_answer'], key=f"ha_{i}")
-                history_questions.append({"question": question, "expected_answer": answer})
-
-            if st.button("Add History Question"):
-                history_questions.append({"question": "", "expected_answer": ""})
-
-        # Physical Exam Editing
-        st.subheader("Physical Examination (LR Pipeline)")
-        with st.expander("Edit Physical Exam Findings", expanded=False):
-            physical_exams = []
-            for i, pe in enumerate(case['case_details']['physical_exam_findings']):
-                col1, col2 = st.columns(2)
-                with col1:
-                    exam = st.text_input(f"Examination {i+1}", value=pe['examination'], key=f"pe_{i}")
-                with col2:
-                    findings = st.text_input(f"Findings {i+1}", value=pe['findings'], key=f"pf_{i}")
-                physical_exams.append({"examination": exam, "findings": findings})
-
-        # Diagnostic Framework Editing
-        st.subheader("Diagnostic Framework")
-        with st.expander("Edit Diagnostic Tiers and Probabilities", expanded=False):
-            for tier_idx, tier in enumerate(case['diagnostic_framework']):
-                st.write(f"**Tier {tier['tier_level']}**")
-
-                buckets = []
-                for bucket_idx, bucket in enumerate(tier['buckets']):
+        # History Questions, Physical Exam, Diagnostic Framework, Feature LRs
+        # Only shown for newly generated cases (not when editing existing DB cases)
+        if not is_loaded_from_db:
+            # History Questions Editing (both formats — needed for LR pipeline)
+            st.subheader("History Questions (LR Pipeline)")
+            with st.expander("Edit History Questions", expanded=False):
+                history_questions = []
+                for i, hq in enumerate(case['case_details']['history_questions']):
                     col1, col2 = st.columns(2)
                     with col1:
-                        name = st.text_input(
-                            f"T{tier['tier_level']} Bucket {bucket_idx+1} Name",
-                            value=bucket['name'],
-                            key=f"bucket_name_{tier_idx}_{bucket_idx}"
-                        )
+                        question = st.text_input(f"Question {i+1}", value=hq['question'], key=f"hq_{i}")
                     with col2:
-                        desc = st.text_input(
-                            f"T{tier['tier_level']} Bucket {bucket_idx+1} Description",
-                            value=bucket['description'],
-                            key=f"bucket_desc_{tier_idx}_{bucket_idx}"
-                        )
-                    buckets.append({"name": name, "description": desc})
+                        answer = st.text_input(f"Expected Answer {i+1}", value=hq['expected_answer'], key=f"ha_{i}")
+                    history_questions.append({"question": question, "expected_answer": answer})
 
-                st.write("A Priori Probabilities:")
-                probs = {}
-                total_prob = 0
-                for bucket in buckets:
-                    if bucket['name']:
-                        prob = st.number_input(
-                            f"{bucket['name']} Probability",
-                            min_value=0.0,
-                            max_value=1.0,
-                            value=tier['a_priori_probabilities'].get(bucket['name'], 0.0),
-                            step=0.01,
-                            key=f"prob_{tier_idx}_{bucket['name']}"
-                        )
-                        probs[bucket['name']] = prob
-                        total_prob += prob
+                if st.button("Add History Question"):
+                    history_questions.append({"question": "", "expected_answer": ""})
 
-                if abs(total_prob - 1.0) > 0.01:
-                    st.warning(f"Tier {tier['tier_level']} probabilities sum to {total_prob:.3f}. Should sum to 1.0")
-
-                st.write("---")
-
-        # Feature Likelihood Ratios Editing
-        st.subheader("Feature Likelihood Ratios")
-        with st.expander("Edit Likelihood Ratios", expanded=False):
-            st.info("Likelihood Ratios: >1 increases probability, <1 decreases probability")
-
-            categories = {}
-            for lr in case['feature_likelihood_ratios']:
-                cat = lr['feature_category']
-                if cat not in categories:
-                    categories[cat] = []
-                categories[cat].append(lr)
-
-            for category, lrs in categories.items():
-                st.write(f"**{category.replace('_', ' ').title()}**")
-                for lr_idx, lr in enumerate(lrs):
-                    col1, col2, col3, col4 = st.columns(4)
+            # Physical Exam Editing
+            st.subheader("Physical Examination (LR Pipeline)")
+            with st.expander("Edit Physical Exam Findings", expanded=False):
+                physical_exams = []
+                for i, pe in enumerate(case['case_details']['physical_exam_findings']):
+                    col1, col2 = st.columns(2)
                     with col1:
-                        st.text_input(
-                            "Feature",
-                            value=lr['feature_name'],
-                            key=f"lr_feature_{category}_{lr_idx}"
-                        )
+                        exam = st.text_input(f"Examination {i+1}", value=pe['examination'], key=f"pe_{i}")
                     with col2:
-                        st.text_input(
-                            "Diagnostic Bucket",
-                            value=lr['diagnostic_bucket'],
-                            key=f"lr_bucket_{category}_{lr_idx}"
-                        )
-                    with col3:
-                        st.number_input(
-                            "Tier",
-                            min_value=1,
-                            max_value=3,
-                            value=lr.get('tier_level', 1),
-                            key=f"lr_tier_{category}_{lr_idx}"
-                        )
-                    with col4:
-                        st.number_input(
-                            "LR",
-                            min_value=0.01,
-                            max_value=50.0,
-                            value=lr['likelihood_ratio'],
-                            step=0.1,
-                            key=f"lr_value_{category}_{lr_idx}"
-                        )
+                        findings = st.text_input(f"Findings {i+1}", value=pe['findings'], key=f"pf_{i}")
+                    physical_exams.append({"examination": exam, "findings": findings})
+
+            # Diagnostic Framework Editing
+            st.subheader("Diagnostic Framework")
+            with st.expander("Edit Diagnostic Tiers and Probabilities", expanded=False):
+                for tier_idx, tier in enumerate(case['diagnostic_framework']):
+                    st.write(f"**Tier {tier['tier_level']}**")
+
+                    buckets = []
+                    for bucket_idx, bucket in enumerate(tier['buckets']):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            name = st.text_input(
+                                f"T{tier['tier_level']} Bucket {bucket_idx+1} Name",
+                                value=bucket['name'],
+                                key=f"bucket_name_{tier_idx}_{bucket_idx}"
+                            )
+                        with col2:
+                            desc = st.text_input(
+                                f"T{tier['tier_level']} Bucket {bucket_idx+1} Description",
+                                value=bucket['description'],
+                                key=f"bucket_desc_{tier_idx}_{bucket_idx}"
+                            )
+                        buckets.append({"name": name, "description": desc})
+
+                    st.write("A Priori Probabilities:")
+                    probs = {}
+                    total_prob = 0
+                    for bucket in buckets:
+                        if bucket['name']:
+                            prob = st.number_input(
+                                f"{bucket['name']} Probability",
+                                min_value=0.0,
+                                max_value=1.0,
+                                value=tier['a_priori_probabilities'].get(bucket['name'], 0.0),
+                                step=0.01,
+                                key=f"prob_{tier_idx}_{bucket['name']}"
+                            )
+                            probs[bucket['name']] = prob
+                            total_prob += prob
+
+                    if abs(total_prob - 1.0) > 0.01:
+                        st.warning(f"Tier {tier['tier_level']} probabilities sum to {total_prob:.3f}. Should sum to 1.0")
+
+                    st.write("---")
+
+            # Feature Likelihood Ratios Editing
+            st.subheader("Feature Likelihood Ratios")
+            with st.expander("Edit Likelihood Ratios", expanded=False):
+                st.info("Likelihood Ratios: >1 increases probability, <1 decreases probability")
+
+                categories = {}
+                for lr in case['feature_likelihood_ratios']:
+                    cat = lr['feature_category']
+                    if cat not in categories:
+                        categories[cat] = []
+                    categories[cat].append(lr)
+
+                for category, lrs in categories.items():
+                    st.write(f"**{category.replace('_', ' ').title()}**")
+                    for lr_idx, lr in enumerate(lrs):
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.text_input(
+                                "Feature",
+                                value=lr['feature_name'],
+                                key=f"lr_feature_{category}_{lr_idx}"
+                            )
+                        with col2:
+                            st.text_input(
+                                "Diagnostic Bucket",
+                                value=lr['diagnostic_bucket'],
+                                key=f"lr_bucket_{category}_{lr_idx}"
+                            )
+                        with col3:
+                            st.number_input(
+                                "Tier",
+                                min_value=1,
+                                max_value=3,
+                                value=lr.get('tier_level', 1),
+                                key=f"lr_tier_{category}_{lr_idx}"
+                            )
+                        with col4:
+                            st.number_input(
+                                "LR",
+                                min_value=0.01,
+                                max_value=50.0,
+                                value=lr['likelihood_ratio'],
+                                step=0.1,
+                                key=f"lr_value_{category}_{lr_idx}"
+                            )
 
         # Save buttons
         st.write("---")
@@ -382,40 +403,57 @@ with tab2:
                 st.info("Feature coming soon: Regenerate specific sections")
 
         with col3:
-            if st.button("Finalize & Save to Database", type="primary"):
+            save_label = "Update Case in Database" if is_loaded_from_db else "Finalize & Save to Database"
+            if st.button(save_label, type="primary"):
                 try:
-                    finalize_payload = {
-                        "session_id": st.session_state.session_id,
-                        "description": case.get("case_details", {}).get("paragraph_summary", "Generated case"),
-                        "primary_diagnosis": case.get("case_details", {}).get(
-                            "diagnostic_reasoning", {}
-                        ).get("differential_diagnoses", "Unknown") if is_sim_ready else "Primary diagnosis",
-                        "title": case.get("case_details", {}).get("case_title", "Case"),
-                        "output_format": st.session_state.output_format,
-                    }
-                    if is_sim_ready:
-                        finalize_payload["allow_orders"] = st.session_state.get("sim_allow_orders", True)
-                        finalize_payload["learner_tasks"] = st.session_state.get("sim_learner_tasks", "")
-                        finalize_payload["custom_input"] = st.session_state.get("sim_custom_input")
-                        finalize_payload["custom_evaluation"] = st.session_state.get("sim_custom_evaluation")
-                        # Include edited content if user modified it
-                        if "sim_rendered_content" in st.session_state:
-                            finalize_payload["rendered_content"] = st.session_state.sim_rendered_content
+                    if is_loaded_from_db:
+                        # UPDATE path: PUT to /sim-ready/case/{id}
+                        existing_id = st.session_state.editing_existing_case_id
+                        update_payload = {
+                            "saved_name": case.get("case_details", {}).get("case_title", "Case"),
+                            "content": st.session_state.get("sim_rendered_content", ""),
+                            "custom_input": st.session_state.get("sim_custom_input"),
+                            "custom_evaluation": st.session_state.get("sim_custom_evaluation"),
+                            "allow_orders": st.session_state.get("sim_allow_orders", True),
+                            "learner_tasks": st.session_state.get("sim_learner_tasks", ""),
+                        }
+                        save_response = requests.put(
+                            f"{BACKEND_URL}/sim-ready/case/{existing_id}",
+                            json=update_payload,
+                            headers=get_auth_header()
+                        )
+                    else:
+                        # CREATE path: POST /finalize-case
+                        finalize_payload = {
+                            "session_id": st.session_state.session_id,
+                            "description": case.get("case_details", {}).get("paragraph_summary", "Generated case"),
+                            "primary_diagnosis": case.get("case_details", {}).get(
+                                "diagnostic_reasoning", {}
+                            ).get("differential_diagnoses", "Unknown") if is_sim_ready else "Primary diagnosis",
+                            "title": case.get("case_details", {}).get("case_title", "Case"),
+                            "output_format": st.session_state.output_format,
+                        }
+                        if is_sim_ready:
+                            finalize_payload["allow_orders"] = st.session_state.get("sim_allow_orders", True)
+                            finalize_payload["learner_tasks"] = st.session_state.get("sim_learner_tasks", "")
+                            finalize_payload["custom_input"] = st.session_state.get("sim_custom_input")
+                            finalize_payload["custom_evaluation"] = st.session_state.get("sim_custom_evaluation")
+                            if "sim_rendered_content" in st.session_state:
+                                finalize_payload["rendered_content"] = st.session_state.sim_rendered_content
 
-                    save_response = requests.post(
-                        f"{BACKEND_URL}/finalize-case",
-                        json=finalize_payload,
-                        headers=get_auth_header()
-                    )
+                        save_response = requests.post(
+                            f"{BACKEND_URL}/finalize-case",
+                            json=finalize_payload,
+                            headers=get_auth_header()
+                        )
 
                     if save_response.status_code == 200:
                         final_case = save_response.json()
-                        # Merge finalize response into existing case data so
-                        # LR/framework info is preserved for export
                         merged = dict(st.session_state.generated_case)
                         merged.update(final_case)
                         st.session_state.generated_case = merged
                         st.session_state.editing_mode = False
+                        st.session_state.editing_existing_case_id = None
                         st.success(f"Case saved to database with ID: {final_case['case_id']}")
                         st.rerun()
                     else:
@@ -442,13 +480,76 @@ with tab2:
             st.session_state.generated_case = None
             st.session_state.session_id = None
             st.session_state.editing_mode = False
+            st.session_state.editing_existing_case_id = None
             # Clear sim-ready editing state
             for key in ["sim_rendered_content", "sim_custom_input", "sim_custom_evaluation",
                         "sim_allow_orders", "sim_learner_tasks", "sim_image_links"]:
                 st.session_state.pop(key, None)
             st.rerun()
     else:
-        st.info("No case in editing mode. Generate a case preview first.")
+        st.info("No case in editing mode. Generate a case preview first, or load an existing case below.")
+
+        st.subheader("Load Existing Sim-Ready Case for Editing")
+        try:
+            cases_resp = requests.get(f"{BACKEND_URL}/sim-ready/cases")
+            if cases_resp.status_code == 200:
+                sim_cases = cases_resp.json()
+                if sim_cases:
+                    case_options = {f"ID {c['id']}: {c['saved_name']}": c['id'] for c in sim_cases}
+                    selected = st.selectbox("Select a case to edit:", list(case_options.keys()))
+
+                    if st.button("Load for Editing", type="primary"):
+                        selected_id = case_options[selected]
+                        case_resp = requests.get(f"{BACKEND_URL}/sim-ready/case/{selected_id}")
+                        if case_resp.status_code == 200:
+                            sim_case = case_resp.json()
+
+                            # Clear any previous editing state
+                            for key in ["sim_rendered_content", "sim_custom_input", "sim_custom_evaluation",
+                                        "sim_allow_orders", "sim_learner_tasks", "sim_image_links"]:
+                                st.session_state.pop(key, None)
+
+                            # Populate session state with DB data
+                            st.session_state.generated_case = {
+                                "case_details": {
+                                    "case_title": sim_case["saved_name"],
+                                    "paragraph_summary": "",
+                                    "presentation": "",
+                                    "patient_personality": "",
+                                    "history_questions": [],
+                                    "physical_exam_findings": [],
+                                    "diagnostic_workup": [],
+                                    "diagnostic_reasoning": {"differential_diagnoses": ""},
+                                },
+                                "diagnostic_framework": [],
+                                "feature_likelihood_ratios": [],
+                                "rendered_content": sim_case["content"],
+                                "default_custom_input": sim_case.get("custom_input") or {"Prespecified Results": "", "Image Links": []},
+                                "default_custom_evaluation": sim_case.get("custom_evaluation") or {"Additional Instructions": ""},
+                                "default_learner_tasks": sim_case.get("learner_tasks") or "",
+                                "case_id": sim_case["id"],
+                                "saved_name": sim_case["saved_name"],
+                            }
+                            st.session_state.sim_rendered_content = sim_case["content"]
+                            st.session_state.sim_custom_input = sim_case.get("custom_input") or {"Prespecified Results": "", "Image Links": []}
+                            st.session_state.sim_custom_evaluation = sim_case.get("custom_evaluation") or {"Additional Instructions": ""}
+                            st.session_state.sim_allow_orders = sim_case.get("allow_orders", True)
+                            st.session_state.sim_learner_tasks = sim_case.get("learner_tasks") or ""
+                            st.session_state.output_format = "sim_ready"
+                            st.session_state.editing_mode = True
+                            st.session_state.session_id = None
+                            st.session_state.editing_existing_case_id = sim_case["id"]
+
+                            st.success(f"Loaded **{sim_case['saved_name']}** (ID: {sim_case['id']}) for editing.")
+                            st.rerun()
+                        else:
+                            st.error(f"Error loading case: {case_resp.text}")
+                else:
+                    st.info("No sim-ready cases found in the database.")
+            else:
+                st.warning("Could not connect to the backend to list cases.")
+        except requests.exceptions.RequestException as e:
+            st.error(f"Connection error: {str(e)}")
 
 with tab3:
     if st.session_state.generated_case and not st.session_state.editing_mode:

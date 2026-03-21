@@ -19,7 +19,7 @@ from backend.models.database import (
 from backend.models.schemas import CaseInput, CaseResponse, CaseOutputFiles, SimReadyCaseResponse
 from backend.models.editing_schemas import (
     CasePreviewResponse, CaseEditRequest, CaseSaveRequest,
-    SessionData, SimReadyCasePreviewResponse,
+    SessionData, SimReadyCasePreviewResponse, SimReadyCaseUpdateRequest,
 )
 from backend.utils.llm_service import LLMService
 from backend.utils.simulator_export import (
@@ -729,6 +729,48 @@ async def get_sim_ready_case(case_id: int):
             raise HTTPException(status_code=404, detail="Sim-ready case not found")
         return {
             "id": case.id,
+            "saved_name": case.saved_name,
+            "content": case.content,
+            "custom_input": case.custom_input,
+            "custom_evaluation": case.custom_evaluation,
+            "allow_orders": case.allow_orders,
+            "learner_tasks": case.learner_tasks,
+        }
+    finally:
+        sim_db.close()
+
+
+@app.put("/sim-ready/case/{case_id}")
+async def update_sim_ready_case(
+    case_id: int,
+    update: SimReadyCaseUpdateRequest,
+    credentials: str = Depends(verify_credentials),
+):
+    """Update an existing sim-ready case in-place."""
+    sim_db = next(get_sim_ready_db())
+    try:
+        case = sim_db.query(CaseDetailSimReady).filter(CaseDetailSimReady.id == case_id).first()
+        if not case:
+            raise HTTPException(status_code=404, detail="Sim-ready case not found")
+
+        if update.saved_name is not None:
+            case.saved_name = update.saved_name
+        if update.content is not None:
+            case.content = update.content
+        if update.custom_input is not None:
+            case.custom_input = update.custom_input
+        if update.custom_evaluation is not None:
+            case.custom_evaluation = update.custom_evaluation
+        if update.allow_orders is not None:
+            case.allow_orders = update.allow_orders
+        if update.learner_tasks is not None:
+            case.learner_tasks = update.learner_tasks
+
+        sim_db.commit()
+        sim_db.refresh(case)
+
+        return {
+            "case_id": case.id,
             "saved_name": case.saved_name,
             "content": case.content,
             "custom_input": case.custom_input,

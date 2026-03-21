@@ -8,6 +8,7 @@ An AI-powered system that generates comprehensive emergency medicine cases with 
 - **Sim-Ready Output (Default)**: Generates cases matching the simulator's `case_details` schema — including a full Clinical Dashboard, Door Chart, OLDCARTS HPI, and all standard medical history sections. Cases are saved directly to the simulator database.
 - **Beta Output**: Full LR/entropy schema with multi-tier diagnostic frameworks, likelihood ratios, and export to CSV/Excel/JSON
 - **Preview & Edit Workflow**: Generate, review, modify, then finalize cases via a session-based editing flow. Sim-ready content is editable in split view (Clinical Dashboard + Door Chart) with native form inputs for simulator fields — no raw JSON editing required.
+- **Post-Finalization Editing**: Load any finalized sim-ready case back into the editor for iterative expert review. Updates are saved in-place — no need to regenerate.
 - **Dual Database**: Sim-ready cases go to the simulator DB (`POSTGRES_URL_SIM_READY`); beta cases go to the internal DB (`POSTGRES_URL`)
 - **Export Formats**: JSON, CSV, Excel — compatible with the [Transcript Feature Check Simulator](https://github.com/DrDavidL/transcript-feature-check). Both sim-ready and beta cases support full exports including diagnostic framework and likelihood ratio data.
 - **Web Interface**: Streamlit frontend with 4 tabs (Generate, Edit, View, Export)
@@ -112,7 +113,8 @@ LLM_RETRY_BASE_DELAY=2.0          # Base delay between retries in seconds
 1. **Generate**: Enter a brief case description and primary diagnosis. Select output format: **Sim-Ready** (default) or **Beta**. The system makes 3 LLM calls (~15-30 seconds).
 2. **Edit**: Review and modify generated content. Sim-ready format splits the content into an editable Clinical Dashboard and Door Chart (with warnings to preserve delimiters), plus native form inputs for simulator fields (prespecified results, image links, additional instructions, learner tasks, allow orders). Beta format shows the full LR/framework editors.
 3. **Finalize**: Save the edited case. Sim-ready saves to the simulator database (`case_details` table). Beta saves to the internal database (3 tables).
-4. **Export**: Download files for use with the simulator app:
+4. **Re-Edit** (sim-ready only): Load any finalized case from the Edit tab's case selector, modify content and simulator fields, then update in-place. Supports multiple rounds of expert review without regenerating.
+5. **Export**: Download files for use with the simulator app:
    - **Sim-Ready**: Content markdown, custom input/evaluation JSON, learner tasks, full case JSON, plus diagnostic framework and likelihood ratio data (available in the same session)
    - **Beta**: LR Matrix (CSV/Excel), Prior Probabilities (JSON), Case Summary (text), original JSON files
 
@@ -144,12 +146,13 @@ The `content` field includes a **Clinical Dashboard** (paragraph summary, patien
 | `POST` | `/finalize-case` | Save edited case. Routes to sim-ready DB or beta DB based on `output_format` |
 | `POST` | `/generate-case` | Generate and save in one step (legacy, beta only) |
 
-### Sim-Ready Case Retrieval (no auth)
+### Sim-Ready Case Retrieval & Editing
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/sim-ready/cases` | List all sim-ready cases from the simulator database |
-| `GET` | `/sim-ready/case/{id}` | Retrieve a single sim-ready case with all fields |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/sim-ready/cases` | No | List all sim-ready cases from the simulator database |
+| `GET` | `/sim-ready/case/{id}` | No | Retrieve a single sim-ready case with all fields |
+| `PUT` | `/sim-ready/case/{id}` | Yes | Update an existing sim-ready case in-place |
 
 ### Beta Case Retrieval & Export (no auth)
 

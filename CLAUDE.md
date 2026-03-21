@@ -157,6 +157,7 @@ az group delete --name casegen-rg --yes
 | POST | `/generate-case` | * | Generate + save (legacy, beta only) |
 | GET | `/sim-ready/cases` | No | List all sim-ready cases |
 | GET | `/sim-ready/case/{id}` | No | Get a single sim-ready case |
+| PUT | `/sim-ready/case/{id}` | * | Update an existing sim-ready case in-place |
 | GET | `/cases` | No | List all beta cases |
 | GET | `/case/{id}/output-files` | No | Export 3 JSON files (beta) |
 | GET | `/case/{id}/simulator-exports` | No | Export metadata (beta) |

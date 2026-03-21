@@ -55,6 +55,15 @@ class CaseSaveRequest(BaseModel):
     custom_evaluation: Optional[Dict[str, Any]] = None
     rendered_content: Optional[str] = None  # User-edited content override for sim-ready
 
+class SimReadyCaseUpdateRequest(BaseModel):
+    saved_name: Optional[str] = None
+    content: Optional[str] = None
+    custom_input: Optional[Dict[str, Any]] = None
+    custom_evaluation: Optional[Dict[str, Any]] = None
+    allow_orders: Optional[bool] = None
+    learner_tasks: Optional[str] = None
+
+
 class SessionData(BaseModel):
     case_details: Dict[str, Any]
     diagnostic_framework: List[Dict[str, Any]]
