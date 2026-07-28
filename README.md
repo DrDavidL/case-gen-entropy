@@ -2,6 +2,21 @@
 
 An AI-powered system that generates comprehensive emergency medicine cases with multi-tiered diagnostic frameworks and evidence-based likelihood ratios for medical education. Supports two output formats: **Sim-Ready** (default, writes directly to a simulator-compatible database) and **Beta** (full LR/entropy schema).
 
+## Documentation
+
+| Document | Purpose |
+|---|---|
+| `CLAUDE.md` | The system **as it exists today** — architecture, endpoints, pitfalls |
+| `Decisions.md` | The system **as it is becoming** — numbered ADRs with rationale |
+| `ToDos.md` | Sequenced plan for the OSCE/SCT build |
+| `docs/README.md` | Map of deep reference docs, read on demand |
+
+> The two-format design described below is being retired in favor of one canonical case record
+> (`Decisions.md` ADR-001). Read `Decisions.md` before designing anything new.
+
+The simulator lives in the companion repo [`direct-sim`](../direct-sim) and shares the same
+database.
+
 ## Features
 
 - **AI Case Generation**: Creates detailed cases from brief descriptions using OpenAI GPT-4o structured outputs

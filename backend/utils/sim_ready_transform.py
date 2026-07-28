@@ -121,15 +121,25 @@ def build_default_custom_evaluation() -> dict:
 
 
 def build_default_learner_tasks() -> str:
-    """Returns default learner tasks markdown."""
+    """Returns default learner tasks markdown.
+
+    The "Dr. X" instruction is a privacy control, not stylistic guidance — it keeps student
+    identifiers out of persisted transcripts. Keep it in sync with `learner_tasks` in
+    direct-sim/sim_prompts.py. See Decisions.md ADR-009.
+    """
     return """### Learner Tasks
 
-1. **Obtain an appropriately focused and detailed history based upon the chief complaint.**
-2. **Perform a pertinent physical examination based upon the chief complaint.**
-3. **Discuss your diagnostic impressions and next steps with the patient.**
-4. **Place appropriate orders for the patient sometimes!**
-5. **Review results with the patient and further next steps.**
-6. **Answer any questions the patient may have to the best of your ability.**"""
+> **Introduce yourself as "Dr. X"** — the letter X, not your own name. Please do not use your real
+> name at any point in this encounter. This keeps your transcript free of anything that identifies
+> you.
+
+1. **Introduce yourself to the patient as "Dr. X".**
+2. **Obtain an appropriately focused and detailed history based upon the chief complaint.**
+3. **Perform a pertinent physical examination based upon the chief complaint.**
+4. **Discuss your diagnostic impressions and next steps with the patient.**
+5. **Place appropriate orders for the patient.**
+6. **Review results with the patient and further next steps.**
+7. **Answer any questions the patient may have to the best of your ability.**"""
 
 
 def extract_door_chart_section(content: str) -> str:

@@ -1,8 +1,24 @@
 # CLAUDE.md — Project Guide for AI Assistants
 
+> ## ⚠️ Read this first
+>
+> **This file describes the system as it exists today. `Decisions.md` describes where it is
+> going, and several accepted decisions supersede what is documented here.** Where they
+> conflict, `Decisions.md` wins.
+>
+> Building from this file alone will reproduce the architecture we are actively moving away
+> from — in particular the dual-output-format design in the section marked
+> **[SUPERSEDED by ADR-001]** below.
+>
+> **Documentation map:** `docs/README.md` — routing table for deep reference, loaded on demand.
+> **Planned work:** `ToDos.md`. **Companion repo:** `../direct-sim` (simulator, shared database).
+
 ## Project Overview
 
 Medical Case Generator: an AI-powered system that creates educational emergency medicine cases with tiered diagnostic frameworks and evidence-based likelihood ratios. Supports two output formats: **Sim-Ready** (default, writes to a simulator-compatible database) and **Beta** (full LR/entropy schema). Backend is FastAPI, frontend is Streamlit, deployed via Docker to Azure Container Apps.
+
+> **[SUPERSEDED by ADR-001]** The two-format split is being retired in favor of one canonical
+> case record. See `docs/architecture-target.md`.
 
 ## Architecture
 
@@ -43,6 +59,13 @@ frontend/
 - **Auth**: All mutating endpoints require HTTP Basic Auth (`Depends(verify_credentials)`). Read-only and sim-ready list endpoints do not.
 
 ## Dual Output Format System
+
+> **[SUPERSEDED by ADR-001, ADR-002]** — accurate description of current behavior, but this is
+> the design being replaced. Two problems drive the change: the sim-ready path **generates the
+> diagnostic framework and full LR matrix and then discards them** (they survive only in
+> `st.session_state`), and the two destinations are separate Neon projects so LR data cannot be
+> joined to `case_details` at all. Target: one canonical structured record per case, markdown
+> derived from it, everything in one database. See `docs/architecture-target.md`.
 
 ### Sim-Ready (default)
 

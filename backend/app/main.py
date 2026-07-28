@@ -15,7 +15,9 @@ from sqlalchemy.orm import Session
 from backend.models.database import (
     get_db, Base, engine, Case, DiagnosticFramework, FeatureLikelihoodRatio,
     get_sim_ready_db, SimReadyBase, sim_ready_engine, CaseDetailSimReady,
+    authoring_schema_ready,
 )
+from backend.utils.authoring_store import persist_case_version, load_analysis
 from backend.models.schemas import CaseInput, CaseResponse, CaseOutputFiles, SimReadyCaseResponse
 from backend.models.editing_schemas import (
     CasePreviewResponse, CaseEditRequest, CaseSaveRequest,
@@ -44,8 +46,19 @@ logging.basicConfig(
 logger = logging.getLogger("case_gen")
 
 Base.metadata.create_all(bind=engine)
+
+# The shared database's schema is owned by Alembic in the direct-sim repo. We create only
+# `case_details` (historical behavior, harmless via checkfirst) and *detect* the authoring
+# tables rather than creating them, so there is exactly one source of truth for the schema
+# and no race between the two apps at startup.
+AUTHORING_ENABLED = False
 if sim_ready_engine is not None:
-    SimReadyBase.metadata.create_all(bind=sim_ready_engine)
+    SimReadyBase.metadata.create_all(
+        bind=sim_ready_engine,
+        tables=[CaseDetailSimReady.__table__],
+    )
+    AUTHORING_ENABLED = authoring_schema_ready(sim_ready_engine)
+    logger.info("Authoring persistence: %s", "enabled" if AUTHORING_ENABLED else "DISABLED")
 
 app = FastAPI(title="Medical Case Generator API", version="1.0.0")
 
@@ -282,6 +295,39 @@ async def finalize_case(save_request: CaseSaveRequest, db: Session = Depends(get
 
                 record = retry_db_operation(save_sim_ready)
                 logger.info("Sim-ready case saved: id=%d", record.id)
+
+                # Persist the canonical record: clinical content + framework + LRs.
+                # Previously this analysis was generated and thrown away on this path
+                # (ADR-001). Failures here must not fail the case save, which is
+                # already committed — log loudly and continue.
+                if AUTHORING_ENABLED:
+                    try:
+                        version = persist_case_version(
+                            sim_db,
+                            title=saved_name,
+                            description=save_request.description,
+                            primary_diagnosis=save_request.primary_diagnosis,
+                            case_details=session_data.case_details,
+                            diagnostic_framework=session_data.diagnostic_framework,
+                            feature_likelihood_ratios=session_data.feature_likelihood_ratios,
+                            output_format="sim_ready",
+                            rendered_content=rendered_content,
+                            render_detached=save_request.rendered_content is not None,
+                            case_detail_id=record.id,
+                        )
+                        logger.info(
+                            "Authoring record saved: case_version=%d (family=%d v%d), "
+                            "%d tiers, %d LRs",
+                            version.id, version.case_family_id, version.version,
+                            len(session_data.diagnostic_framework or []),
+                            len(session_data.feature_likelihood_ratios or []),
+                        )
+                    except Exception:
+                        sim_db.rollback()
+                        logger.exception(
+                            "Failed to persist authoring record for case_detail_id=%d; "
+                            "the case itself was saved", record.id
+                        )
             finally:
                 sim_db.close()
 
@@ -715,6 +761,30 @@ async def list_sim_ready_cases():
             {"id": c.id, "saved_name": c.saved_name, "allow_orders": c.allow_orders}
             for c in cases
         ]
+    finally:
+        sim_db.close()
+
+
+@app.get("/sim-ready/case/{case_id}/analysis")
+async def get_sim_ready_case_analysis(case_id: int):
+    """Diagnostic framework + likelihood ratios for a sim-ready case.
+
+    Before ADR-001 this data existed only in Streamlit session state and was lost on
+    refresh. The Export tab should prefer this endpoint over in-memory state.
+    """
+    if not AUTHORING_ENABLED:
+        raise HTTPException(status_code=503, detail="Authoring schema is not available")
+
+    sim_db = next(get_sim_ready_db())
+    try:
+        analysis = load_analysis(sim_db, case_id)
+        if analysis is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No stored analysis for this case. Cases finalized before the "
+                       "authoring record existed have no persisted framework/LR data.",
+            )
+        return analysis
     finally:
         sim_db.close()
 
