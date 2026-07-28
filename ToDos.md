@@ -138,3 +138,22 @@ Awaiting research-group review (defaults in `docs/Final_Orders_Oracle_Proposal.d
 - [ ] Rename "Final Orders" to "Key Management Decisions"?
 - [ ] Split the panel across two model families?
 - [ ] Schedule the human validation panel?
+
+---
+
+## From the `main` merge (2026-07-28)
+
+The branch had diverged at `9a0e8fc` and never rebased. Resolved in `af97877`; these
+are the loose ends it surfaced.
+
+- [ ] **`tier_level` on the beta `feature_likelihood_ratios` table.** `main` added it via a
+      runtime `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in `_ensure_schema()`, which ran at
+      import. Not ported — runtime DDL conflicts with Alembic owning the schema `ADR-012`.
+      The column may already exist in the beta DB from a previous boot. Check, then handle it
+      properly when the beta tables migrate into `authoring` `ADR-001`
+- [ ] **LR matrix endpoints ignore their `tier_level` query param.** `/case/{id}/simulator-export/
+      lr-matrix-csv` and `-excel` accept `tier_level` and never pass it to
+      `create_feature_lr_matrix()`, which (since the merge) accepts it. One-line fix each, but
+      it changes response content, so it needs a deliberate call rather than a merge drive-by
+- [ ] **Expose `/regenerate-lrs` in the UI.** Ported from `main` and reachable, but nothing
+      calls it. Natural fit with the Phase 5 LR editing work `ADR-007`
