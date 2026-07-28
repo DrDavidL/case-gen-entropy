@@ -164,9 +164,27 @@ az group delete --name casegen-rg --yes
 
 **Secrets**: `OPENAI_API_KEY`, `POSTGRES_URL`, `APP_PASSWORD` are stored as Container Apps secrets (referenced via `secretref:`). Not passed as plaintext env vars.
 
-**Redeploy workflow**: `./deploy-aca.sh redeploy` rebuilds both images in ACR and updates the container apps. No need to recreate the environment or Redis.
+**Deploying**: push to `main`. `.github/workflows/deploy.yml` builds both images in ACR and
+updates both container apps. `./deploy-aca.sh redeploy` does the same thing manually.
 
-**Legacy ACI scripts** (`setup-azure.sh`, `deploy-manual.sh`, `create-deployment-config.sh`) are kept for reference but the active deployment uses Container Apps via `deploy-aca.sh`.
+**Images are tagged uniquely per build** (`<sha>-<timestamp>` from the script, `<sha>` from CI).
+This is load-bearing, not cosmetic: Container Apps only creates a new revision when the revision
+spec changes, so reusing a mutable `:v1` tag makes `az containerapp update` a silent no-op. That
+went unnoticed from 2026-03-10 to 2026-07-28, during which the backend served a four-month-old
+image while deploys reported success. See `Decisions.md` ADR-012.
+
+**Verify every deploy**: `curl https://<backend>/` returns `build.git_sha` and
+`build.build_time`; the Streamlit footer shows frontend and backend stamps side by side and warns
+when they diverge. If a deploy "succeeded" but the SHA did not move, the revision did not roll.
+
+**Legacy ACI scripts** (`setup-azure.sh`, `deploy-manual.sh`, `create-deployment-config.sh`) are
+kept for reference only.
+
+**An older generation of this app** (`backend-app`, `frontend-app`, `redis-app` on
+`medical-case-env`, same resource group) ran live on Sept 2025 code against the same production
+database until 2026-07-28. It is now scaled to zero with ingress disabled, pending deletion —
+see `ToDos.md` "Deferred / revisit". Do not confuse it with the current apps, which are all
+prefixed `casegen-`.
 
 ## API Endpoints (Auth Required = *)
 
