@@ -1,417 +1,263 @@
 # Medical Case Generator
 
-A comprehensive AI-powered medical case generation system that creates detailed emergency medicine cases with diagnostic frameworks and likelihood ratios for medical education and training.
+An AI-powered system that generates comprehensive emergency medicine cases with multi-tiered diagnostic frameworks and evidence-based likelihood ratios for medical education. Supports two output formats: **Sim-Ready** (default, writes directly to a simulator-compatible database) and **Beta** (full LR/entropy schema).
 
-## 🚀 Features
+## Documentation
 
-### Core Functionality
-- **AI-Powered Case Generation**: Generate detailed medical cases from brief descriptions using OpenAI's latest structured outputs API
-- **Multi-Tier Diagnostic Framework**: Create 3-tier diagnostic categories (broad → specific → precise) with probability distributions
-- **Evidence-Based Likelihood Ratios**: Generate clinically meaningful likelihood ratios for diagnostic reasoning
-- **Interactive Case Editing**: Preview, edit, and refine generated cases before saving
-- **Multiple Export Formats**: Export cases as JSON, CSV, or Excel files for analysis applications
+| Document | Purpose |
+|---|---|
+| `CLAUDE.md` | The system **as it exists today** — architecture, endpoints, pitfalls |
+| `Decisions.md` | The system **as it is becoming** — numbered ADRs with rationale |
+| `ToDos.md` | Sequenced plan for the OSCE/SCT build |
+| `docs/README.md` | Map of deep reference docs, read on demand |
 
-### Advanced Features
-- **Session Management**: Redis-powered session handling for case editing workflows
-- **Database Persistence**: PostgreSQL storage with comprehensive case metadata
-- **Authentication System**: Secure access control for case preview and editing
-- **Modern API Architecture**: FastAPI backend with comprehensive OpenAPI documentation
-- **Responsive Web Interface**: Streamlit-based frontend with intuitive case management
-- **Azure Cloud Deployment**: Production-ready deployment on Azure Container Apps
+> The two-format design described below is being retired in favor of one canonical case record
+> (`Decisions.md` ADR-001). Read `Decisions.md` before designing anything new.
 
-### Export Capabilities
-- **Three JSON Outputs**: Structured data files optimized for integration with analysis applications
-- **CSV Export**: Tabular data format for spreadsheet analysis
-- **Excel Export**: Multi-sheet workbooks with formatted case data
-- **Feature-LR Matrix**: Pre-computed matrices for entropy-based diagnostic reasoning
+The simulator lives in the companion repo [`direct-sim`](../direct-sim) and shares the same
+database.
 
-## 📋 Quick Start
+## Features
+
+- **AI Case Generation**: Creates detailed cases from brief descriptions using OpenAI GPT-4o structured outputs
+- **Sim-Ready Output (Default)**: Generates cases matching the simulator's `case_details` schema — including a full Clinical Dashboard, Door Chart, OLDCARTS HPI, and all standard medical history sections. Cases are saved directly to the simulator database.
+- **Beta Output**: Full LR/entropy schema with multi-tier diagnostic frameworks, likelihood ratios, and export to CSV/Excel/JSON
+- **Preview & Edit Workflow**: Generate, review, modify, then finalize cases via a session-based editing flow. Sim-ready content is editable in split view (Clinical Dashboard + Door Chart) with native form inputs for simulator fields — no raw JSON editing required.
+- **Post-Finalization Editing**: Load any finalized sim-ready case back into the editor for iterative expert review. Updates are saved in-place — no need to regenerate.
+- **Dual Database**: Sim-ready cases go to the simulator DB (`POSTGRES_URL_SIM_READY`); beta cases go to the internal DB (`POSTGRES_URL`)
+- **Export Formats**: JSON, CSV, Excel — compatible with the [Transcript Feature Check Simulator](https://github.com/DrDavidL/transcript-feature-check). Both sim-ready and beta cases support full exports including diagnostic framework and likelihood ratio data.
+- **Web Interface**: Streamlit frontend with 4 tabs (Generate, Edit, View, Export)
+
+## Architecture
+
+```
+┌─────────────┐     HTTP      ┌──────────────┐     SQL      ┌─────────────────┐
+│  Streamlit   │ ──────────── │   FastAPI     │ ──────────── │ PostgreSQL (Beta)│
+│  Frontend    │  Basic Auth  │   Backend     │              │  POSTGRES_URL    │
+└─────────────┘               └──────────────┘              └─────────────────┘
+                                     │                              │
+                              ┌──────┴──────┐              ┌───────┴─────────────┐
+                              │             │              │ PostgreSQL (Sim-Ready)│
+                         ┌────┴───┐   ┌─────┴────┐        │ POSTGRES_URL_SIM_READY│
+                         │ Redis  │   │ OpenAI   │        │ (case_details table)  │
+                         │Sessions│   │ GPT-4o   │        └───────────────────────┘
+                         └────────┘   └──────────┘
+```
+
+| Component | Tech | Purpose |
+|-----------|------|---------|
+| Backend | FastAPI (Python 3.11) | REST API, LLM orchestration, data persistence |
+| Frontend | Streamlit | Case creation, editing, visualization, export |
+| Beta Database | PostgreSQL (Neon) | Internal case storage (cases, diagnostic_frameworks, feature_likelihood_ratios) |
+| Sim-Ready Database | PostgreSQL (Neon) | Simulator-compatible case storage (case_details table) |
+| Cache | Redis | Temporary editing sessions (1-hour TTL) |
+| LLM | OpenAI GPT-4o | Structured case generation (3 sequential calls per case) |
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- PostgreSQL database (e.g., [Neon](https://neon.tech))
+- Redis (local or hosted)
+- OpenAI API key
 
 ### Local Development
 
-1. **Install Dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+# Clone and setup
+git clone <repo-url>
+cd case-gen-entropy
 
-2. **Set Up Environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your actual values:
-   # - OpenAI API key (required)
-   # - PostgreSQL connection string (required)
-   # - Redis URL (optional, defaults to localhost)
-   ```
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate
 
-3. **Start Services**
-   ```bash
-   # Start backend (Terminal 1)
-   python start_backend.py
-   
-   # Start frontend (Terminal 2)
-   python start_frontend.py
-   ```
+# Install dependencies (use uv)
+uv pip install -r requirements.txt
 
-4. **Access the Application**
-   - Frontend: http://localhost:8501
-   - Backend API: http://localhost:8000
-   - API Documentation: http://localhost:8000/docs
+# Configure environment
+cp .env.example .env
+# Edit .env with your actual values (see Environment Variables below)
 
-### Docker Development
+# Start backend (terminal 1)
+python start_backend.py    # http://localhost:8000
+
+# Start frontend (terminal 2)
+python start_frontend.py   # http://localhost:8501
+```
+
+### Docker
 
 ```bash
-# Start all services with Docker Compose
-docker-compose up
-
-# Access:
-# - Frontend: http://localhost:8501
-# - Backend: http://localhost:8000
-# - Redis: localhost:6379
+docker compose up --build
 ```
 
-### Production Deployment (Azure)
+This starts Redis, backend (:8000), and frontend (:8501) with hot-reload.
 
-The system is production-ready and deployed on Azure Container Apps:
+### Access
 
-```bash
-# Deploy to Azure Container Apps
-./deploy-container-apps.sh
+- Frontend: http://localhost:8501
+- API docs: http://localhost:8000/docs
+- Health check: http://localhost:8000/
 
-# Services will be available at:
-# - Frontend: https://frontend-app.[environment].azurecontainerapps.io
-# - Backend: https://backend-app.[environment].azurecontainerapps.io
-```
+## Environment Variables
 
-## 🏗️ Architecture
-
-### Technology Stack
-- **Backend**: FastAPI with Pydantic v2 for data validation
-- **Frontend**: Streamlit for interactive web interface
-- **AI/ML**: OpenAI GPT-4o with structured outputs (latest API)
-- **Database**: PostgreSQL for persistent storage
-- **Cache/Sessions**: Redis for session management
-- **Deployment**: Azure Container Apps with automatic scaling
-- **Container Registry**: Azure Container Registry for image management
-
-### System Architecture
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Streamlit     │────│   FastAPI       │────│   PostgreSQL    │
-│   Frontend      │    │   Backend       │    │   Database      │
-│                 │    │                 │    │                 │
-│ • Case Creation │    │ • LLM Service   │    │ • Case Storage  │
-│ • Case Editing  │    │ • API Endpoints │    │ • User Data     │
-│ • Export Tools  │    │ • Authentication│    │ • Metadata      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         │              ┌─────────────────┐             │
-         │              │     Redis       │             │
-         │              │   Session Store │             │
-         │              │                 │             │
-         │              │ • Case Sessions │             │
-         │              │ • Edit State    │             │
-         └──────────────│ • Cache Layer   │─────────────┘
-                        └─────────────────┘
-                                 │
-                        ┌─────────────────┐
-                        │   OpenAI API    │
-                        │                 │
-                        │ • GPT-4o Model  │
-                        │ • Structured    │
-                        │   Outputs       │
-                        └─────────────────┘
-```
-
-### Backend Components
-- **LLM Service**: Modern OpenAI integration with structured outputs
-- **Database Models**: Comprehensive schema for cases, frameworks, and likelihood ratios
-- **Authentication**: Secure credential verification system
-- **Export Utilities**: Multi-format export with simulator compatibility
-- **Session Management**: Redis-based temporary storage for editing workflows
-
-### Frontend Features
-- **Case Creation Wizard**: Step-by-step case generation interface
-- **Interactive Preview**: Real-time case editing and refinement
-- **Export Dashboard**: Multiple format downloads with preview
-- **Case Library**: Browse and manage previously generated cases
-- **Authentication Interface**: Secure login for protected features
-
-## 📊 Generated Data Structure
-
-### Case Details JSON
-```json
-{
-  "presentation": "Detailed patient presentation...",
-  "patient_personality": "Communication style description...",
-  "history_questions": [
-    {
-      "question": "Clinical question...",
-      "expected_answer": "Patient response..."
-    }
-  ],
-  "physical_exam_findings": [
-    {
-      "examination": "Exam component...",
-      "findings": "Clinical findings..."
-    }
-  ],
-  "diagnostic_workup": [
-    {
-      "test": "Diagnostic test...",
-      "rationale": "Clinical rationale..."
-    }
-  ]
-}
-```
-
-### Diagnostic Framework JSON
-```json
-{
-  "tiers": [
-    {
-      "tier_level": 1,
-      "buckets": [
-        {
-          "name": "Cardiovascular",
-          "description": "Heart and vascular conditions..."
-        }
-      ],
-      "a_priori_probabilities": {
-        "Cardiovascular": 0.35,
-        "Respiratory": 0.25
-      }
-    }
-  ]
-}
-```
-
-### Feature Likelihood Ratios JSON
-```json
-{
-  "feature_likelihood_ratios": [
-    {
-      "feature_name": "Chest pain",
-      "feature_category": "history",
-      "diagnostic_bucket": "Ischemic Heart Disease",
-      "tier_level": 2,
-      "likelihood_ratio": 3.5
-    }
-  ]
-}
-```
-
-## 🔌 API Endpoints
-
-### Core Endpoints
-- `GET /` - API health check
-- `POST /generate-case` - Generate complete medical case
-- `POST /preview-case` - Generate case for preview/editing (requires auth)
-- `PUT /edit-case` - Update case during editing session
-- `POST /save-case` - Save edited case to database
-
-### Data Retrieval
-- `GET /cases` - List all generated cases
-- `GET /case/{case_id}` - Get specific case details
-- `GET /case/{case_id}/output-files` - Export case as JSON/CSV/Excel
-
-### Export Options
-- **JSON**: Three structured files (case_details, diagnostic_framework, feature_likelihood_ratios)
-- **CSV**: Tabular format for spreadsheet analysis
-- **Excel**: Multi-sheet workbook with formatted data
-
-## 🔧 Configuration
-
-### Environment Variables
 ```bash
 # Required
-OPENAI_API_KEY=your_openai_api_key_here
-POSTGRES_URL=postgresql://user:pass@host:port/db
+OPENAI_API_KEY=sk-...              # OpenAI API key
+POSTGRES_URL=postgresql://...      # Beta DB connection string (include sslmode=require for cloud)
 
-# Optional (with defaults)
-REDIS_URL=redis://localhost:6379/0
-BACKEND_URL=http://localhost:8000
+# Sim-Ready database (required for sim-ready output format)
+POSTGRES_URL_SIM_READY=postgresql://...  # Simulator DB with case_details table
 
-# Authentication (for preview/edit features)
-APP_USERNAME=your_username
-APP_PASSWORD=your_password
+# Optional
+REDIS_URL=redis://localhost:6379/0 # Redis connection (default: localhost)
+BACKEND_URL=http://localhost:8000  # Backend URL for frontend
+APP_USERNAME=admin                 # Basic auth username
+APP_PASSWORD=changeme              # Basic auth password
 
-# Azure Deployment
-ACR_USERNAME=your_acr_username
-ACR_PASSWORD=your_acr_password
+# LLM tuning
+LLM_REQUEST_TIMEOUT=120            # OpenAI request timeout in seconds
+LLM_MAX_RETRIES=3                  # Max retry attempts for LLM calls
+LLM_RETRY_BASE_DELAY=2.0          # Base delay between retries in seconds
 ```
 
-### OpenAI API Requirements
-- **Model**: GPT-4o (2024-08-06) or later
-- **Features**: Structured outputs with JSON schema
-- **API Version**: v1.106.1+
+## Usage Workflow
 
-## 🚀 Recent Improvements
+1. **Generate**: Enter a brief case description and primary diagnosis. Select output format: **Sim-Ready** (default) or **Beta**. The system makes 3 LLM calls (~15-30 seconds).
+2. **Edit**: Review and modify generated content. Sim-ready format splits the content into an editable Clinical Dashboard and Door Chart (with warnings to preserve delimiters), plus native form inputs for simulator fields (prespecified results, image links, additional instructions, learner tasks, allow orders). Beta format shows the full LR/framework editors.
+3. **Finalize**: Save the edited case. Sim-ready saves to the simulator database (`case_details` table). Beta saves to the internal database (3 tables).
+4. **Re-Edit** (sim-ready only): Load any finalized case from the Edit tab's case selector, modify content and simulator fields, then update in-place. Supports multiple rounds of expert review without regenerating.
+5. **Export**: Download files for use with the simulator app:
+   - **Sim-Ready**: Content markdown, custom input/evaluation JSON, learner tasks, full case JSON, plus diagnostic framework and likelihood ratio data (available in the same session)
+   - **Beta**: LR Matrix (CSV/Excel), Prior Probabilities (JSON), Case Summary (text), original JSON files
 
-### Version 2.0 Features
-- **Modern OpenAI API**: Updated to latest structured outputs with `response_format`
-- **Pydantic v2**: Full migration to Pydantic v2 with proper model validation
-- **Azure Container Apps**: Production deployment with automatic scaling
-- **Enhanced Error Handling**: Comprehensive error management and retry logic
-- **Session-Based Editing**: Redis-powered case editing workflows
-- **Multi-Format Export**: JSON, CSV, and Excel export capabilities
+### Sim-Ready Output Format
 
-### Performance Optimizations
-- **Parallel Processing**: Concurrent generation of case components
-- **Caching Layer**: Redis-based caching for improved response times
-- **Connection Pooling**: Optimized database connection management
-- **Load Balancing**: Azure Container Apps automatic scaling
+The sim-ready format generates cases matching the simulator's `case_details` table schema:
 
-### Security Enhancements
-- **Credential Validation**: Secure authentication for protected endpoints
-- **Environment Variable Management**: Secure secret handling in Azure
-- **HTTPS Enforcement**: SSL/TLS encryption for all communications
-- **Input Sanitization**: Comprehensive input validation and sanitization
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | SERIAL PK | Auto-generated |
+| `saved_name` | VARCHAR | Case title (e.g., "Chest Pain with ECG Changes") |
+| `content` | TEXT | Full markdown: Clinical Dashboard + Door Chart |
+| `custom_input` | JSON | Prespecified results & image links for the simulator |
+| `custom_evaluation` | JSON | Additional instructions for simulated patient behavior |
+| `allow_orders` | BOOLEAN | Whether the simulator allows ordering tests (default: true) |
+| `learner_tasks` | TEXT | Markdown task list for the learner |
 
-## 🏭 Development Workflow
+The `content` field includes a **Clinical Dashboard** (paragraph summary, patient approach, OLDCARTS HPI, PMHx, SHx, FHx, medications/allergies, ROS, physical exam, diagnostic reasoning, teaching points) and a **Door Chart** section (patient demographics, chief complaint, vital signs) separated by a `## PATIENT DOOR CHART and Learner Instructions` heading for easy parsing.
 
-### Project Structure
+## API Endpoints
+
+### Case Generation (requires auth)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/preview-case` | Generate case preview, store in Redis session. Accepts `output_format`: `"sim_ready"` (default) or `"beta"` |
+| `PUT` | `/edit-case` | Update case data in editing session |
+| `GET` | `/session/{id}` | Retrieve session data |
+| `POST` | `/finalize-case` | Save edited case. Routes to sim-ready DB or beta DB based on `output_format` |
+| `POST` | `/generate-case` | Generate and save in one step (legacy, beta only) |
+
+### Sim-Ready Case Retrieval & Editing
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/sim-ready/cases` | No | List all sim-ready cases from the simulator database |
+| `GET` | `/sim-ready/case/{id}` | No | Retrieve a single sim-ready case with all fields |
+| `PUT` | `/sim-ready/case/{id}` | Yes | Update an existing sim-ready case in-place |
+
+### Beta Case Retrieval & Export (no auth)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/cases` | List all beta cases |
+| `GET` | `/case/{id}/output-files` | Get 3 JSON output files |
+| `GET` | `/case/{id}/simulator-exports` | Get export metadata |
+| `GET` | `/case/{id}/simulator-export/lr-matrix-csv` | LR matrix as CSV |
+| `GET` | `/case/{id}/simulator-export/lr-matrix-excel` | LR matrix as Excel |
+| `GET` | `/case/{id}/simulator-export/prior-probabilities` | Prior probabilities JSON |
+| `GET` | `/case/{id}/simulator-export/case-summary` | Case summary text |
+
+## Project Structure
+
 ```
-medical-case-generator/
+case-gen-entropy/
 ├── backend/
-│   ├── app/
-│   │   └── main.py              # FastAPI application
+│   ├── app/main.py                  # FastAPI app, all endpoints (sim-ready + beta)
 │   ├── models/
-│   │   ├── database.py          # Database models
-│   │   ├── schemas.py           # API schemas
-│   │   ├── structured_outputs.py # OpenAI response models
-│   │   └── editing_schemas.py   # Session management schemas
+│   │   ├── database.py              # SQLAlchemy ORM (beta tables + CaseDetailSimReady)
+│   │   ├── schemas.py               # API response schemas (CaseResponse, SimReadyCaseResponse)
+│   │   ├── editing_schemas.py       # Session/editing schemas (CaseSaveRequest with output_format, rendered_content override)
+│   │   └── structured_outputs.py    # OpenAI structured output models (original + SimReadyCaseDetailsStructured)
 │   └── utils/
-│       ├── llm_service.py       # OpenAI integration
-│       ├── simulator_export.py  # Export utilities
-│       └── auth.py              # Authentication
+│       ├── llm_service.py           # LLM calls with retry logic (beta + sim-ready prompts)
+│       ├── auth.py                  # HTTP Basic Auth
+│       ├── simulator_export.py      # Export formatting (CSV, Excel, JSON) — beta only
+│       └── sim_ready_transform.py   # Sim-ready markdown renderer + default builders
 ├── frontend/
-│   └── app.py                   # Streamlit interface
-├── docker-compose.yml           # Local development
-├── Dockerfile.backend           # Backend container
-├── Dockerfile.frontend          # Frontend container
-├── deploy-container-apps.sh     # Azure deployment
-├── requirements.txt             # Python dependencies
-└── README.md
+│   ├── app.py                       # Streamlit UI (split content editor, native sim field inputs, dual export)
+│   └── auth.py                      # Frontend auth management
+├── Dockerfile.backend
+├── Dockerfile.frontend
+├── docker-compose.yml
+├── deploy-aca.sh                    # Azure Container Apps deployment script
+├── requirements.txt
+├── start_backend.py
+├── start_frontend.py
+├── .env.example
+├── CLAUDE.md                        # AI assistant project guide
+├── SECURITY_GUIDE.md
+└── DEPLOYMENT_GUIDE.md
 ```
 
-### Development Guidelines
-1. **Code Quality**: All code follows PEP 8 standards with type hints
-2. **Testing**: Comprehensive testing of API endpoints and LLM integration
-3. **Documentation**: OpenAPI/Swagger documentation for all endpoints
-4. **Error Handling**: Robust error handling with meaningful error messages
-5. **Logging**: Structured logging for debugging and monitoring
+## Deployment (Azure Container Apps)
 
-## 🔄 Integration & Usage
+Deployed to **Azure Container Apps** with 3 apps: Redis (internal), Backend (external), Frontend (external).
 
-### For Medical Education
-- Generate diverse clinical cases for student training
-- Create standardized scenarios for assessment
-- Develop case-based learning materials
-- Support simulation training programs
+### First-time setup
 
-### For Diagnostic Research
-- Export structured data for entropy analysis
-- Generate likelihood ratio matrices
-- Support Bayesian diagnostic reasoning research
-- Integrate with existing analysis pipelines
+Requires Azure CLI (`az login`) and a `.env` file with `OPENAI_API_KEY` and `POSTGRES_URL`.
 
-### For Clinical Decision Support
-- Create reference cases for diagnostic training
-- Generate probability distributions for clinical scenarios
-- Support evidence-based medicine initiatives
-- Enhance diagnostic reasoning education
-
-## 📈 Performance Metrics
-
-### Generation Times
-- **Case Details**: ~8-12 seconds
-- **Diagnostic Framework**: ~6-8 seconds  
-- **Likelihood Ratios**: ~8-10 seconds
-- **Total Case Generation**: ~22-30 seconds
-
-### Scalability
-- **Azure Container Apps**: Auto-scaling 1-5 replicas
-- **Database**: PostgreSQL with connection pooling
-- **Cache**: Redis with session persistence
-- **API Rate Limits**: Configurable per deployment
-
-## 📝 License
-
-MIT License - see LICENSE file for details.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with tests
-4. Update documentation
-5. Submit a pull request
-
-## 📞 Support
-
-For issues, questions, or contributions:
-- **Issues**: GitHub Issues tracker
-- **Documentation**: API docs at `/docs` endpoint
-- **Development**: See development workflow above
-
----
-
-**Built with modern AI and cloud technologies for scalable medical education.**
-
----
-
-## 🧩 Key Functions (Quick Summary)
-
-- Generate cases from a brief description and primary diagnosis (LLM structured outputs)
-- Edit all content interactively (presentation, buckets, probabilities, LRs)
-- Regenerate LRs strictly after bucket edits (exact bucket names per tier; invalid rows dropped)
-- Draft exports from Redis session (no DB write):
-  - JSON: case details, a priori probabilities, feature likelihood ratios
-  - Simulator: LR Matrix (CSV/Excel), Prior Probabilities (per tier), Case Summary
-- Finalize & Save to Postgres when ready; then export finalized artifacts
-
-## 🧭 Recommended Workflow
-
-1) Generate Preview → 2) Edit content and metadata → 3) Regenerate LRs (strict) if buckets changed → 4) Draft export and review → 5) Finalize to DB (optional) → 6) Finalized export
-
-Notes
-- Title and Primary Diagnosis are stored in the session and used in draft exports.
-- Exports are tier-aware; LR matrices contain only the selected tier’s buckets.
-
-## ☁️ Manual Build & Deploy to Azure Container Apps (no CI/CD)
-
-Prereqs
-- Azure CLI logged in: `az login`
-- Azure Container Registry (ACR) with admin user enabled (or use an existing one)
-- `.env` contains at minimum: `RESOURCE_GROUP`, `ACR_USERNAME`, `ACR_PASSWORD`, `POSTGRES_URL` (sslmode=require), `OPENAI_API_KEY`, `APP_USERNAME`, `APP_PASSWORD`
-
-Build images in ACR
 ```bash
-# Backend
-az acr build --registry $ACR_NAME \
-  --image case-generator-backend:latest \
-  --file Dockerfile.backend .
-
-# Frontend
-az acr build --registry $ACR_NAME \
-  --image case-generator-frontend:latest \
-  --file Dockerfile.frontend .
+./deploy-aca.sh                     # Creates resource group, ACR, environment, deploys all apps
 ```
 
-Deploy Container Apps via Bicep script
+This creates:
+- **Resource group**: `casegen-rg`
+- **Container registry**: `casegenacr` (images built in the cloud via ACR, no local Docker needed)
+- **Environment**: `casegen-env` with Log Analytics
+- **3 container apps**: `casegen-redis`, `casegen-backend`, `casegen-frontend`
+
+### Redeploy after code changes
+
 ```bash
-./deploy-container-apps.sh
-
-# Script prints:
-# - Frontend URL: https://<frontend-app-fqdn>
-# - Backend URL:  https://<backend-app-fqdn>
+./deploy-aca.sh redeploy            # Rebuild images in ACR + update running apps
 ```
 
-Post‑deploy checks
-- Health: `curl https://<backend-fqdn>/health` (Redis/DB should be “Connected”)
-- Frontend: generate → edit → draft export → finalize → finalized export
-- Logs: `az containerapp logs show --name backend-app --resource-group $RESOURCE_GROUP --follow`
+### Live URLs
 
-Secrets & config
-- Keep secrets only in `.env` and in Azure; scripts do not echo secrets.
-- The Bicep template passes secrets via secretRef (`POSTGRES_URL`, `OPENAI_API_KEY`, `APP_USERNAME`, `APP_PASSWORD`).
+- **Frontend**: https://casegen-frontend.greenbush-b78bdd23.eastus.azurecontainerapps.io
+- **Backend API**: https://casegen-backend.greenbush-b78bdd23.eastus.azurecontainerapps.io
+- **API docs**: https://casegen-backend.greenbush-b78bdd23.eastus.azurecontainerapps.io/docs
+
+### Tear down
+
+```bash
+az group delete --name casegen-rg --yes   # Deletes everything
+```
+
+## Security
+
+See [SECURITY_GUIDE.md](SECURITY_GUIDE.md). Key points:
+
+- `.env` is git-ignored (contains secrets)
+- Secrets (`OPENAI_API_KEY`, `POSTGRES_URL`, `APP_PASSWORD`) stored as Azure Container Apps secrets, not plaintext env vars
+- All mutating API endpoints require HTTP Basic Auth
+- Database connections use SSL (`sslmode=require`)
+
+## License
+
+MIT License

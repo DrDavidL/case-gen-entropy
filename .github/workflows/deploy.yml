@@ -1,73 +1,109 @@
 name: Deploy to Azure Container Apps
 
+# Mirrors `./deploy-aca.sh redeploy`. It does NOT run first-time setup — the resource
+# group, ACR, environment, and the three container apps must already exist, along with
+# their secrets (openai-api-key, postgres-url, postgres-url-sim-ready, app-password).
+# Run ./deploy-aca.sh once to create them.
+#
+# Replaces an older workflow that deployed to Azure Container *Instances* in
+# `medical-case-generator-rg` — infrastructure that is no longer the live deployment.
+#
+# Database migrations are NOT run here. The shared schema is owned by Alembic in the
+# direct-sim repo; see direct-sim/MIGRATIONS.md. If a migration adds tables this app
+# needs, deploy direct-sim first — this backend detects the authoring schema at startup
+# and logs "Authoring persistence: enabled" or "DISABLED".
+
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths-ignore:
-      - 'README.md'
+      - '**/*.md'
       - 'docs/**'
+  workflow_dispatch:
 
 env:
-  RESOURCE_GROUP: medical-case-generator-rg
-  LOCATION: eastus
-  ENVIRONMENT_NAME: medical-case-env
+  RESOURCE_GROUP: casegen-rg
+  ACR_NAME: casegenacr
+  APP: casegen
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Azure Login
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+      # This repo had no secrets configured at all as of 2026-07-28, so CI could never
+      # deploy. Fail with an actionable message rather than a cryptic azure/login error.
+      - name: Check required secrets
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          if [ -z "$AZURE_CREDENTIALS" ]; then
+            echo "::error::AZURE_CREDENTIALS is not set, so this workflow cannot deploy."
+            echo "::error::Create a service principal with contributor on ${{ env.RESOURCE_GROUP }}"
+            echo "::error::and AcrPush on ${{ env.ACR_NAME }}, then store the JSON as a repository"
+            echo "::error::secret named AZURE_CREDENTIALS. Until then, deploy with:"
+            echo "::error::  ./deploy-aca.sh redeploy"
+            exit 1
+          fi
 
-    - name: Build and push images to ACR
-      run: |
-        # Build and push backend
-        az acr build \
-          --registry ${{ secrets.ACR_NAME }} \
-          --image case-generator-backend:${{ github.sha }} \
-          --image case-generator-backend:latest \
-          --file Dockerfile.backend \
-          .
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-        # Build and push frontend
-        az acr build \
-          --registry ${{ secrets.ACR_NAME }} \
-          --image case-generator-frontend:${{ github.sha }} \
-          --image case-generator-frontend:latest \
-          --file Dockerfile.frontend \
-          .
+      - name: Stamp build metadata
+        run: |
+          echo "GIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
 
-    - name: Deploy Container Apps via Bicep
-      run: |
-        # Create resource group (idempotent)
-        az group create --name ${{ env.RESOURCE_GROUP }} --location ${{ env.LOCATION }}
+      - name: Build backend image
+        run: |
+          az acr build --registry ${{ env.ACR_NAME }} \
+            --image ${{ env.APP }}-backend:${{ github.sha }} \
+            --image ${{ env.APP }}-backend:v1 \
+            --build-arg GIT_SHA=$GIT_SHA \
+            --build-arg BUILD_TIME=$BUILD_TIME \
+            --build-arg IMAGE_TAG=${{ github.sha }} \
+            --file Dockerfile.backend --platform linux/amd64 .
 
-        # Deploy container apps environment + apps
-        az deployment group create \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --template-file container-apps-bicep.bicep \
-          --parameters \
-            location=${{ env.LOCATION }} \
-            environmentName=${{ env.ENVIRONMENT_NAME }} \
-            containerRegistry=${{ secrets.ACR_NAME }}.azurecr.io \
-            acrUsername=${{ secrets.ACR_USERNAME }} \
-            acrPassword=${{ secrets.ACR_PASSWORD }} \
-            postgresUrl='${{ secrets.POSTGRES_URL }}' \
-            openaiApiKey='${{ secrets.OPENAI_API_KEY }}' \
-            appUsername='${{ secrets.APP_USERNAME }}' \
-            appPassword='${{ secrets.APP_PASSWORD }}'
+      - name: Build frontend image
+        run: |
+          az acr build --registry ${{ env.ACR_NAME }} \
+            --image ${{ env.APP }}-frontend:${{ github.sha }} \
+            --image ${{ env.APP }}-frontend:v1 \
+            --build-arg GIT_SHA=$GIT_SHA \
+            --build-arg BUILD_TIME=$BUILD_TIME \
+            --build-arg IMAGE_TAG=${{ github.sha }} \
+            --file Dockerfile.frontend --platform linux/amd64 .
 
-    - name: Show deployed URLs
-      run: |
-        az extension add --name containerapp --upgrade -y
-        FRONTEND_FQDN=$(az containerapp show --name frontend-app --resource-group ${{ env.RESOURCE_GROUP }} --query "properties.configuration.ingress.fqdn" -o tsv)
-        BACKEND_FQDN=$(az containerapp show --name backend-app --resource-group ${{ env.RESOURCE_GROUP }} --query "properties.configuration.ingress.fqdn" -o tsv)
-        echo "Deployment complete"
-        echo "Frontend URL: https://$FRONTEND_FQDN"
-        echo "Backend URL: https://$BACKEND_FQDN"
+      - name: Update backend container app
+        run: |
+          az containerapp update \
+            --name ${{ env.APP }}-backend \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.APP }}-backend:${{ github.sha }}
+
+      - name: Update frontend container app
+        run: |
+          az containerapp update \
+            --name ${{ env.APP }}-frontend \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.APP }}-frontend:${{ github.sha }}
+
+      - name: Report URLs and authoring status
+        run: |
+          FRONTEND=$(az containerapp show --name ${{ env.APP }}-frontend \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          BACKEND=$(az containerapp show --name ${{ env.APP }}-backend \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "Frontend: https://$FRONTEND"
+          echo "Backend:  https://$BACKEND"
+          echo ""
+          echo "Confirm the authoring schema was detected:"
+          echo "  az containerapp logs show --name ${{ env.APP }}-backend \\"
+          echo "    --resource-group ${{ env.RESOURCE_GROUP }} --tail 100 | grep 'Authoring persistence'"
