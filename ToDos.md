@@ -23,8 +23,10 @@ Prerequisites for everything else.
 - [x] **Alembic owns the schema.** Baseline stamped + `authoring` migration in `direct-sim`
       (`0001_baseline`, `0002_authoring_schema`). The app now *detects* the tables via
       `authoring_schema_ready()` and never runs DDL for them. Runbook: `direct-sim/MIGRATIONS.md`
-- [ ] **Run the migration against production** — `alembic stamp 0001_baseline` then
-      `alembic upgrade head`, per `direct-sim/MIGRATIONS.md`. Not yet done.
+- [x] **Migration applied to production** (2026-07-28). Needed `stamp 0001_baseline --purge`,
+      not a plain stamp: `alembic_version` held `867af2511f84`, a revision whose file had been
+      deleted. Verified after: `authoring` present with all four tables, `case_details`/
+      `transcripts`/`assessments` row counts unchanged.
 - [ ] **Point the Export tab at the new endpoint** instead of `st.session_state`
 - [ ] **Version on edit** — `PUT /sim-ready/case/{id}` currently updates in place without
       creating a new `case_version`. Should pass `family_id` + `parent_version_id` `ADR-003`
@@ -104,8 +106,8 @@ ORM models and that the `include_name` filter stops autogenerate from dropping `
 - [ ] **Re-verify everything believed shipped between 2026-03-10 and 2026-07-28** — the
       backend ran a March image that whole time. Post-finalization editing (`92e057c`) is the
       known case; there may be others
-- [ ] Same build stamp for `direct-sim` — its workflow already uses SHA tags so it has no
-      no-op bug, but the React UI shows no version, and learners are the ones reporting issues
+- [x] Same build stamp for `direct-sim` — unauthenticated `GET /api/version`, startup log, and
+      sidebar footer. One image serves both SPA and API there, so a single stamp covers both
 - [ ] Record the generator build in `case_versions` for case provenance — knowing which build
       authored a case matters once cases span months `ADR-003` `ADR-012`
 
@@ -115,8 +117,9 @@ ORM models and that the `include_name` filter stops autogenerate from dropping `
 - [x] Patient persona never asks for or echoes a real name; accepts "Dr. X" without comment;
       STT variants (`Dr. Ex` / `Dr. Ecks`) treated as equivalent
 - [x] Removed the persona line that actively prompted learners for their name
-- [ ] Frontend/UI surface of the "Dr. X" instruction where the learner actually sees it before
-      starting (currently only in learner tasks markdown)
+- [x] "Dr. X" surfaced in the simulator sidebar where the learner sees it before starting.
+      Replaced pre-existing copy reading "Dr. L (or your own initial)" — an initial is itself a
+      weak identifier in a single-institution cohort
 - [ ] Targeted transcript redaction on learner turns, patient names allowlisted
 - [ ] Redaction event logging so the rate is observable
 - [ ] Verify vendor audio retention for voice mode — larger exposure than transcript text
