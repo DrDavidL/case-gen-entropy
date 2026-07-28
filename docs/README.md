@@ -26,6 +26,7 @@ declares what it covers and what it does not, so you can stop reading early.
 | `final-orders-sct.md` | Building the Final Orders authoring flow or its schema | Simulator-side suppression and rating collection |
 | `privacy-data-handling.md` | Touching transcripts, learner data, exports, or schema access | Case authoring |
 | `Final_Orders_Oracle_Proposal.docx` | You need the research-group-facing version, or the methodology rationale in prose | Implementation detail |
+| `Status_and_Decisions_Needed.docx` | Handing the group a status update, or checking which decisions are still open | Design rationale (see the proposal) |
 
 ## The other repository
 
