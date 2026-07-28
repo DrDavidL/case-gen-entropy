@@ -125,8 +125,10 @@ The Responses API is a **separate call path** from the rest of the generator, wh
 response = client.responses.create(
     model=ORACLE_MODEL,
     reasoning={"effort": ORACLE_REASONING_EFFORT},
-    input=[{"role": "system", "content": persona},
-           {"role": "user", "content": item_prompt}],
+    input=[
+        {"role": "system", "content": persona},
+        {"role": "user", "content": item_prompt},
+    ],
 )
 ```
 

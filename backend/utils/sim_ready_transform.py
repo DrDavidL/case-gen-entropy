@@ -102,10 +102,7 @@ def render_sim_ready_content(case_data: dict) -> str:
 
 def build_default_custom_input() -> dict:
     """Returns default custom_input JSON."""
-    return {
-        "Prespecified Results": "",
-        "Image Links": []
-    }
+    return {"Prespecified Results": "", "Image Links": []}
 
 
 def build_default_custom_evaluation() -> dict:

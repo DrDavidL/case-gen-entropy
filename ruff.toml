@@ -1,0 +1,30 @@
+# Lint configuration. Mirrors the shape of ../direct-sim/ruff.toml so the two repos
+# behave consistently.
+
+exclude = [
+    ".venv/",
+    "__pycache__/",
+]
+
+[lint]
+ignore = [
+    # FastAPI's dependency-injection idiom is `def f(x = Depends(g))`. B008 flags every
+    # call in an argument default, which is a known false positive here -- "fixing" it
+    # would break dependency resolution. Declared below as an immutable call instead.
+    "B008",
+    # Broad `except Exception` with logging is deliberate in the LLM and DB retry paths:
+    # a failure there must degrade, not propagate. Bare `except:` is still an error (E722).
+    "BLE001",
+]
+
+[lint.flake8-bugbear]
+# Belt-and-braces alongside the B008 ignore above: these are safe in argument defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header", "fastapi.Path"]
+
+[lint.per-file-ignores]
+# Streamlit requires st.set_page_config() before other st calls, so imports cannot all
+# sit at the top of the module.
+"frontend/app.py" = ["E402"]
+# SQLAlchemy declarative models use `__table_args__` dicts/tuples as class attributes;
+# RUF012 wants ClassVar, which the declarative base does not expect.
+"backend/models/database.py" = ["RUF012"]

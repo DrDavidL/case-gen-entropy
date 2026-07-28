@@ -1,14 +1,25 @@
-from sqlalchemy import (
-    create_engine, Column, Integer, String, Text, JSON, DateTime, Float,
-    ForeignKey, Boolean, UniqueConstraint, inspect,
-)
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
-from sqlalchemy.pool import QueuePool
-from datetime import datetime
 import logging
 import os
+from datetime import datetime
+
 from dotenv import load_dotenv
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+    inspect,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.pool import QueuePool
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +37,7 @@ engine = create_engine(
     max_overflow=10,
     pool_pre_ping=True,
     pool_recycle=3600,
-    connect_args={"sslmode": "require"} if "sslmode" not in DATABASE_URL else {}
+    connect_args={"sslmode": "require"} if "sslmode" not in DATABASE_URL else {},
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -47,9 +58,13 @@ if SIM_READY_DATABASE_URL:
         max_overflow=10,
         pool_pre_ping=True,
         pool_recycle=3600,
-        connect_args={"sslmode": "require"} if "sslmode" not in SIM_READY_DATABASE_URL else {}
+        connect_args={"sslmode": "require"}
+        if "sslmode" not in SIM_READY_DATABASE_URL
+        else {},
     )
-    SimReadySessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sim_ready_engine)
+    SimReadySessionLocal = sessionmaker(
+        autocommit=False, autoflush=False, bind=sim_ready_engine
+    )
 
 
 class Case(Base):
@@ -63,8 +78,12 @@ class Case(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    frameworks = relationship("DiagnosticFramework", back_populates="case", lazy="selectin")
-    feature_lrs = relationship("FeatureLikelihoodRatio", back_populates="case", lazy="selectin")
+    frameworks = relationship(
+        "DiagnosticFramework", back_populates="case", lazy="selectin"
+    )
+    feature_lrs = relationship(
+        "FeatureLikelihoodRatio", back_populates="case", lazy="selectin"
+    )
 
 
 class DiagnosticFramework(Base):
@@ -133,8 +152,12 @@ def authoring_schema_ready(bind) -> bool:
         return False
     try:
         names = set(inspect(bind).get_table_names(schema=AUTHORING_SCHEMA))
-        required = {"case_families", "case_versions",
-                    "diagnostic_frameworks", "feature_likelihood_ratios"}
+        required = {
+            "case_families",
+            "case_versions",
+            "diagnostic_frameworks",
+            "feature_likelihood_ratios",
+        }
         missing = required - names
         if missing:
             logger.warning(
@@ -145,8 +168,11 @@ def authoring_schema_ready(bind) -> bool:
             return False
         return True
     except Exception as e:
-        logger.error("Could not inspect '%s' schema; authoring persistence disabled: %s",
-                     AUTHORING_SCHEMA, str(e)[:200])
+        logger.error(
+            "Could not inspect '%s' schema; authoring persistence disabled: %s",
+            AUTHORING_SCHEMA,
+            str(e)[:200],
+        )
         return False
 
 
@@ -178,10 +204,16 @@ class CaseVersion(SimReadyBase):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    case_family_id = Column(Integer, ForeignKey(f"{AUTHORING_SCHEMA}.case_families.id"),
-                            nullable=False, index=True)
+    case_family_id = Column(
+        Integer,
+        ForeignKey(f"{AUTHORING_SCHEMA}.case_families.id"),
+        nullable=False,
+        index=True,
+    )
     version = Column(Integer, nullable=False, default=1)
-    status = Column(String, nullable=False, default="published")  # draft|published|retired
+    status = Column(
+        String, nullable=False, default="published"
+    )  # draft|published|retired
 
     title = Column(String)
     description = Column(Text)
@@ -193,8 +225,9 @@ class CaseVersion(SimReadyBase):
     render_detached = Column(Boolean, nullable=False, default=False)
 
     # Lineage for "save as new with variables changed".
-    parent_version_id = Column(Integer, ForeignKey(f"{AUTHORING_SCHEMA}.case_versions.id"),
-                               nullable=True)
+    parent_version_id = Column(
+        Integer, ForeignKey(f"{AUTHORING_SCHEMA}.case_versions.id"), nullable=True
+    )
 
     # Deliberately NOT a ForeignKey: `case_details` is the simulator's table and we
     # will not constrain it from here.
@@ -206,10 +239,14 @@ class CaseVersion(SimReadyBase):
     published_at = Column(DateTime, nullable=True)
 
     family = relationship("CaseFamily", back_populates="versions")
-    frameworks = relationship("AuthoringDiagnosticFramework", back_populates="case_version",
-                              lazy="selectin")
-    feature_lrs = relationship("AuthoringFeatureLikelihoodRatio", back_populates="case_version",
-                               lazy="selectin")
+    frameworks = relationship(
+        "AuthoringDiagnosticFramework", back_populates="case_version", lazy="selectin"
+    )
+    feature_lrs = relationship(
+        "AuthoringFeatureLikelihoodRatio",
+        back_populates="case_version",
+        lazy="selectin",
+    )
 
 
 class AuthoringDiagnosticFramework(SimReadyBase):
@@ -217,8 +254,12 @@ class AuthoringDiagnosticFramework(SimReadyBase):
     __table_args__ = {"schema": AUTHORING_SCHEMA}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    case_version_id = Column(Integer, ForeignKey(f"{AUTHORING_SCHEMA}.case_versions.id"),
-                             nullable=False, index=True)
+    case_version_id = Column(
+        Integer,
+        ForeignKey(f"{AUTHORING_SCHEMA}.case_versions.id"),
+        nullable=False,
+        index=True,
+    )
     tier_level = Column(Integer)
     diagnostic_buckets = Column(JSONB)
     a_priori_probabilities = Column(JSONB)
@@ -232,8 +273,12 @@ class AuthoringFeatureLikelihoodRatio(SimReadyBase):
     __table_args__ = {"schema": AUTHORING_SCHEMA}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    case_version_id = Column(Integer, ForeignKey(f"{AUTHORING_SCHEMA}.case_versions.id"),
-                             nullable=False, index=True)
+    case_version_id = Column(
+        Integer,
+        ForeignKey(f"{AUTHORING_SCHEMA}.case_versions.id"),
+        nullable=False,
+        index=True,
+    )
     feature_name = Column(String)
     feature_category = Column(String)
     diagnostic_bucket = Column(String)

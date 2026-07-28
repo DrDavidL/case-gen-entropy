@@ -1,10 +1,10 @@
-import openai
-import json
-import os
-import logging
 import asyncio
-from typing import Dict, List, Any
+import logging
+import os
+
+import openai
 from dotenv import load_dotenv
+
 from backend.models.structured_outputs import (
     CaseDetailsStructured,
     DiagnosticFrameworkStructured,
@@ -37,36 +37,69 @@ class LLMService:
         for attempt in range(LLM_MAX_RETRIES):
             try:
                 result = parse_fn()
-                logger.info("LLM call succeeded: %s (attempt %d)", description, attempt + 1)
+                logger.info(
+                    "LLM call succeeded: %s (attempt %d)", description, attempt + 1
+                )
                 return result
             except openai.RateLimitError as e:
                 last_exception = e
-                wait = LLM_RETRY_BASE_DELAY * (2 ** attempt)
-                logger.warning("Rate limited on %s (attempt %d/%d), retrying in %.1fs",
-                               description, attempt + 1, LLM_MAX_RETRIES, wait)
-                import time; time.sleep(wait)
+                wait = LLM_RETRY_BASE_DELAY * (2**attempt)
+                logger.warning(
+                    "Rate limited on %s (attempt %d/%d), retrying in %.1fs",
+                    description,
+                    attempt + 1,
+                    LLM_MAX_RETRIES,
+                    wait,
+                )
+                import time
+
+                time.sleep(wait)
             except openai.APITimeoutError as e:
                 last_exception = e
-                wait = LLM_RETRY_BASE_DELAY * (2 ** attempt)
-                logger.warning("Timeout on %s (attempt %d/%d), retrying in %.1fs",
-                               description, attempt + 1, LLM_MAX_RETRIES, wait)
-                import time; time.sleep(wait)
+                wait = LLM_RETRY_BASE_DELAY * (2**attempt)
+                logger.warning(
+                    "Timeout on %s (attempt %d/%d), retrying in %.1fs",
+                    description,
+                    attempt + 1,
+                    LLM_MAX_RETRIES,
+                    wait,
+                )
+                import time
+
+                time.sleep(wait)
             except openai.APIConnectionError as e:
                 last_exception = e
-                wait = LLM_RETRY_BASE_DELAY * (2 ** attempt)
-                logger.warning("Connection error on %s (attempt %d/%d), retrying in %.1fs",
-                               description, attempt + 1, LLM_MAX_RETRIES, wait)
-                import time; time.sleep(wait)
+                wait = LLM_RETRY_BASE_DELAY * (2**attempt)
+                logger.warning(
+                    "Connection error on %s (attempt %d/%d), retrying in %.1fs",
+                    description,
+                    attempt + 1,
+                    LLM_MAX_RETRIES,
+                    wait,
+                )
+                import time
+
+                time.sleep(wait)
             except openai.APIStatusError as e:
                 # 5xx errors are retryable, 4xx (except 429) are not
                 if e.status_code >= 500:
                     last_exception = e
-                    wait = LLM_RETRY_BASE_DELAY * (2 ** attempt)
-                    logger.warning("Server error %d on %s (attempt %d/%d), retrying in %.1fs",
-                                   e.status_code, description, attempt + 1, LLM_MAX_RETRIES, wait)
-                    import time; time.sleep(wait)
+                    wait = LLM_RETRY_BASE_DELAY * (2**attempt)
+                    logger.warning(
+                        "Server error %d on %s (attempt %d/%d), retrying in %.1fs",
+                        e.status_code,
+                        description,
+                        attempt + 1,
+                        LLM_MAX_RETRIES,
+                        wait,
+                    )
+                    import time
+
+                    time.sleep(wait)
                 else:
-                    logger.error("Non-retryable API error on %s: %s", description, str(e))
+                    logger.error(
+                        "Non-retryable API error on %s: %s", description, str(e)
+                    )
                     raise
             except Exception as e:
                 logger.error("Unexpected error on %s: %s", description, str(e))
@@ -75,7 +108,9 @@ class LLMService:
         logger.error("All %d retries exhausted for %s", LLM_MAX_RETRIES, description)
         raise last_exception
 
-    def generate_case_details(self, description: str, primary_diagnosis: str) -> CaseDetailsStructured:
+    def generate_case_details(
+        self, description: str, primary_diagnosis: str
+    ) -> CaseDetailsStructured:
         prompt = f"""
         Based on the following brief case description and primary diagnosis, generate a comprehensive medical case.
 
@@ -94,11 +129,14 @@ class LLMService:
             response = self.client.beta.chat.completions.parse(
                 model="gpt-4o-2024-08-06",
                 messages=[
-                    {"role": "system", "content": "You are an expert emergency medicine physician and medical educator. Generate realistic, educational medical cases with proper clinical detail."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are an expert emergency medicine physician and medical educator. Generate realistic, educational medical cases with proper clinical detail.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 response_format=CaseDetailsStructured,
-                temperature=0.7
+                temperature=0.7,
             )
             parsed = response.choices[0].message.parsed
             if parsed is None:
@@ -107,7 +145,9 @@ class LLMService:
 
         return self._call_with_retry(_call, "generate_case_details")
 
-    def generate_sim_ready_case_details(self, description: str, primary_diagnosis: str) -> SimReadyCaseDetailsStructured:
+    def generate_sim_ready_case_details(
+        self, description: str, primary_diagnosis: str
+    ) -> SimReadyCaseDetailsStructured:
         """Generate a simulator-ready case with rich clinical detail and legacy feature lists."""
         prompt = f"""
         Based on the following brief case description and primary diagnosis, generate a comprehensive
@@ -171,20 +211,27 @@ class LLMService:
             response = self.client.beta.chat.completions.parse(
                 model="gpt-4o-2024-08-06",
                 messages=[
-                    {"role": "system", "content": "You are an expert emergency medicine physician and medical educator. Generate realistic, simulator-ready medical cases with comprehensive clinical detail."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are an expert emergency medicine physician and medical educator. Generate realistic, simulator-ready medical cases with comprehensive clinical detail.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 response_format=SimReadyCaseDetailsStructured,
-                temperature=0.7
+                temperature=0.7,
             )
             parsed = response.choices[0].message.parsed
             if parsed is None:
-                raise ValueError("LLM returned empty parsed response for sim-ready case details")
+                raise ValueError(
+                    "LLM returned empty parsed response for sim-ready case details"
+                )
             return parsed
 
         return self._call_with_retry(_call, "generate_sim_ready_case_details")
 
-    def _sim_ready_to_case_details(self, sim_ready: SimReadyCaseDetailsStructured) -> CaseDetailsStructured:
+    def _sim_ready_to_case_details(
+        self, sim_ready: SimReadyCaseDetailsStructured
+    ) -> CaseDetailsStructured:
         """Adapter to allow existing framework/LR methods to work with sim-ready data."""
         return CaseDetailsStructured(
             presentation=sim_ready.paragraph_summary,
@@ -194,7 +241,9 @@ class LLMService:
             diagnostic_workup=sim_ready.diagnostic_workup,
         )
 
-    def generate_diagnostic_framework(self, case_details: CaseDetailsStructured, primary_diagnosis: str) -> DiagnosticFrameworkStructured:
+    def generate_diagnostic_framework(
+        self, case_details: CaseDetailsStructured, primary_diagnosis: str
+    ) -> DiagnosticFrameworkStructured:
         prompt = f"""
         Based on the following case details and primary diagnosis, create a tiered diagnostic framework with 3 tiers of progressively refined diagnostic categories.
 
@@ -215,20 +264,29 @@ class LLMService:
             response = self.client.beta.chat.completions.parse(
                 model="gpt-4o-2024-08-06",
                 messages=[
-                    {"role": "system", "content": "You are an expert emergency medicine physician with expertise in diagnostic reasoning and Bayesian probability. Create realistic diagnostic frameworks."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are an expert emergency medicine physician with expertise in diagnostic reasoning and Bayesian probability. Create realistic diagnostic frameworks.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 response_format=DiagnosticFrameworkStructured,
-                temperature=0.7
+                temperature=0.7,
             )
             parsed = response.choices[0].message.parsed
             if parsed is None:
-                raise ValueError("LLM returned empty parsed response for diagnostic framework")
+                raise ValueError(
+                    "LLM returned empty parsed response for diagnostic framework"
+                )
             return parsed
 
         return self._call_with_retry(_call, "generate_diagnostic_framework")
 
-    def generate_feature_likelihood_ratios(self, case_details: CaseDetailsStructured, diagnostic_framework: DiagnosticFrameworkStructured) -> FeatureLikelihoodRatiosStructured:
+    def generate_feature_likelihood_ratios(
+        self,
+        case_details: CaseDetailsStructured,
+        diagnostic_framework: DiagnosticFrameworkStructured,
+    ) -> FeatureLikelihoodRatiosStructured:
         # Build feature list from case details
         features_summary = []
         for hq in case_details.history_questions:
@@ -271,11 +329,14 @@ class LLMService:
             response = self.client.beta.chat.completions.parse(
                 model="gpt-4o-2024-08-06",
                 messages=[
-                    {"role": "system", "content": "You are an expert emergency medicine physician with expertise in evidence-based diagnosis and likelihood ratios. Generate realistic LRs based on medical literature."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are an expert emergency medicine physician with expertise in evidence-based diagnosis and likelihood ratios. Generate realistic LRs based on medical literature.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 response_format=FeatureLikelihoodRatiosStructured,
-                temperature=0.7
+                temperature=0.7,
             )
             parsed = response.choices[0].message.parsed
             if parsed is None:
@@ -284,18 +345,36 @@ class LLMService:
 
         return self._call_with_retry(_call, "generate_feature_likelihood_ratios")
 
-    async def generate_case_details_async(self, description: str, primary_diagnosis: str) -> CaseDetailsStructured:
+    async def generate_case_details_async(
+        self, description: str, primary_diagnosis: str
+    ) -> CaseDetailsStructured:
         """Async wrapper for generate_case_details."""
-        return await asyncio.to_thread(self.generate_case_details, description, primary_diagnosis)
+        return await asyncio.to_thread(
+            self.generate_case_details, description, primary_diagnosis
+        )
 
-    async def generate_sim_ready_case_details_async(self, description: str, primary_diagnosis: str) -> SimReadyCaseDetailsStructured:
+    async def generate_sim_ready_case_details_async(
+        self, description: str, primary_diagnosis: str
+    ) -> SimReadyCaseDetailsStructured:
         """Async wrapper for generate_sim_ready_case_details."""
-        return await asyncio.to_thread(self.generate_sim_ready_case_details, description, primary_diagnosis)
+        return await asyncio.to_thread(
+            self.generate_sim_ready_case_details, description, primary_diagnosis
+        )
 
-    async def generate_diagnostic_framework_async(self, case_details: CaseDetailsStructured, primary_diagnosis: str) -> DiagnosticFrameworkStructured:
+    async def generate_diagnostic_framework_async(
+        self, case_details: CaseDetailsStructured, primary_diagnosis: str
+    ) -> DiagnosticFrameworkStructured:
         """Async wrapper for generate_diagnostic_framework."""
-        return await asyncio.to_thread(self.generate_diagnostic_framework, case_details, primary_diagnosis)
+        return await asyncio.to_thread(
+            self.generate_diagnostic_framework, case_details, primary_diagnosis
+        )
 
-    async def generate_feature_likelihood_ratios_async(self, case_details: CaseDetailsStructured, diagnostic_framework: DiagnosticFrameworkStructured) -> FeatureLikelihoodRatiosStructured:
+    async def generate_feature_likelihood_ratios_async(
+        self,
+        case_details: CaseDetailsStructured,
+        diagnostic_framework: DiagnosticFrameworkStructured,
+    ) -> FeatureLikelihoodRatiosStructured:
         """Async wrapper for generate_feature_likelihood_ratios."""
-        return await asyncio.to_thread(self.generate_feature_likelihood_ratios, case_details, diagnostic_framework)
+        return await asyncio.to_thread(
+            self.generate_feature_likelihood_ratios, case_details, diagnostic_framework
+        )
