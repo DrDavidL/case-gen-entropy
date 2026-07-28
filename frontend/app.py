@@ -105,14 +105,15 @@ with tab1:
             placeholder="e.g., Acute Myocardial Infarction"
         )
 
-        output_format = st.radio(
-            "Output Format",
-            options=["sim_ready", "beta"],
-            index=0,
-            format_func=lambda x: "Sim-Ready (Simulator Compatible)" if x == "sim_ready" else "Beta (Full LR Schema)",
-            help="Sim-Ready saves to the simulator database. Beta saves the full LR/entropy schema.",
-            horizontal=True,
-        )
+        # The Sim-Ready / Beta choice is retired (Decisions.md ADR-001). It was never a
+        # choice between two formats -- it was a choice between two disconnected systems,
+        # in separate Neon projects that could not be joined. Sim-Ready now persists the
+        # diagnostic framework and full LR matrix too, so Beta offers nothing it lacks
+        # while writing somewhere the simulator cannot read.
+        #
+        # The backend still honours output_format, and existing Beta cases remain readable
+        # via /cases and the export endpoints. Only the choice is gone.
+        output_format = "sim_ready"
 
         preview_button = st.form_submit_button("Generate Preview", type="primary")
 

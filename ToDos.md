@@ -87,7 +87,11 @@ ORM models and that the `include_name` filter stops autogenerate from dropping `
 
 ## Phase 7 — Retire the toggle
 
-- [ ] `output_format` becomes an export choice, then leaves the Generate tab `ADR-001`
+- [x] **Sim-Ready / Beta radio removed from the Generate tab.** Brought forward from last
+      place: once Sim-Ready persisted the framework and LR matrix (Phase 1), Beta offered
+      nothing it lacked while writing to a database the simulator cannot read. `ADR-001`
+- [ ] Remove the `output_format` branch from the backend once no Beta case needs re-export
+- [ ] Migrate the legacy beta tables into `authoring`, then drop the second Neon project
 
 ---
 

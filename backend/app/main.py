@@ -309,7 +309,15 @@ async def finalize_case(save_request: CaseSaveRequest, db: Session = Depends(get
                     return record
 
                 record = retry_db_operation(save_sim_ready)
-                logger.info("Sim-ready case saved: id=%d", record.id)
+
+                # Read the values out now, while `record` is still live. The
+                # authoring write below commits on this same session, which expires
+                # every loaded instance; `sim_db.close()` then detaches them, so any
+                # later attribute access would try to refresh a detached object and
+                # raise. Plain locals are immune to both.
+                saved_case_id = record.id
+                saved_case_name = record.saved_name
+                logger.info("Sim-ready case saved: id=%d", saved_case_id)
 
                 # Persist the canonical record: clinical content + framework + LRs.
                 # Previously this analysis was generated and thrown away on this path
@@ -328,7 +336,7 @@ async def finalize_case(save_request: CaseSaveRequest, db: Session = Depends(get
                             output_format="sim_ready",
                             rendered_content=rendered_content,
                             render_detached=save_request.rendered_content is not None,
-                            case_detail_id=record.id,
+                            case_detail_id=saved_case_id,
                         )
                         logger.info(
                             "Authoring record saved: case_version=%d (family=%d v%d), "
@@ -341,17 +349,17 @@ async def finalize_case(save_request: CaseSaveRequest, db: Session = Depends(get
                         sim_db.rollback()
                         logger.exception(
                             "Failed to persist authoring record for case_detail_id=%d; "
-                            "the case itself was saved", record.id
+                            "the case itself was saved", saved_case_id
                         )
             finally:
                 sim_db.close()
 
             redis_client.delete(f"session:{save_request.session_id}")
-            logger.info("Sim-ready case finalized: id=%d, session cleaned up", record.id)
+            logger.info("Sim-ready case finalized: id=%d, session cleaned up", saved_case_id)
 
             return SimReadyCaseResponse(
-                case_id=record.id,
-                saved_name=record.saved_name,
+                case_id=saved_case_id,
+                saved_name=saved_case_name,
                 output_format="sim_ready",
             )
         else:
