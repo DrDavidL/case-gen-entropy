@@ -151,9 +151,10 @@ are the loose ends it surfaced.
       import. Not ported — runtime DDL conflicts with Alembic owning the schema `ADR-012`.
       The column may already exist in the beta DB from a previous boot. Check, then handle it
       properly when the beta tables migrate into `authoring` `ADR-001`
-- [ ] **LR matrix endpoints ignore their `tier_level` query param.** `/case/{id}/simulator-export/
-      lr-matrix-csv` and `-excel` accept `tier_level` and never pass it to
-      `create_feature_lr_matrix()`, which (since the merge) accepts it. One-line fix each, but
-      it changes response content, so it needs a deliberate call rather than a merge drive-by
-- [ ] **Expose `/regenerate-lrs` in the UI.** Ported from `main` and reachable, but nothing
-      calls it. Natural fit with the Phase 5 LR editing work `ADR-007`
+- [x] **LR matrix endpoints now honour `tier_level`.** They accepted the param and dropped it,
+      so CSV/Excel always contained every tier. Default is now **2** (tier 1 is broad, tier 3
+      very specific); the Export tab exposes it as a selector so a case can be re-exported at
+      tier 1 without regenerating anything
+- [x] **`/regenerate-lrs` exposed in the Edit tab.** Re-runs LR generation against the current
+      framework with exact bucket names — the fix for renaming a diagnostic bucket, which
+      otherwise orphans every LR pointing at the old name `ADR-007`

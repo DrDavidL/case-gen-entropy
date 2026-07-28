@@ -442,6 +442,54 @@ with tab2:
                     "Likelihood Ratios: >1 increases probability, <1 decreases probability"
                 )
 
+                # Regenerate against the current framework. Useful after editing
+                # bucket names -- LRs reference buckets by name, so a renamed
+                # bucket orphans every LR pointing at the old one.
+                regen_col, regen_msg = st.columns([1, 3])
+                with regen_col:
+                    do_regen = st.button(
+                        "Regenerate LRs",
+                        help=(
+                            "Re-runs likelihood-ratio generation against the current "
+                            "diagnostic framework, using exact bucket names. Replaces "
+                            "the list below. Costs one LLM call."
+                        ),
+                    )
+                with regen_msg:
+                    st.caption(
+                        "Run this after renaming diagnostic buckets, so the LRs "
+                        "point at the buckets that now exist."
+                    )
+                if do_regen:
+                    with st.spinner("Regenerating likelihood ratios..."):
+                        try:
+                            regen = requests.post(
+                                f"{BACKEND_URL}/regenerate-lrs",
+                                json={
+                                    "session_id": st.session_state.session_id,
+                                    "case_details": case.get("case_details"),
+                                    "diagnostic_framework": case.get(
+                                        "diagnostic_framework"
+                                    ),
+                                },
+                                headers=get_auth_header(),
+                                timeout=300,
+                            )
+                            if regen.status_code == 200:
+                                case["feature_likelihood_ratios"] = regen.json()[
+                                    "feature_likelihood_ratios"
+                                ]
+                                st.session_state.generated_case = case
+                                st.success(
+                                    f"Regenerated {len(case['feature_likelihood_ratios'])} "
+                                    "likelihood ratios."
+                                )
+                                st.rerun()
+                            else:
+                                st.error(f"Regeneration failed: {regen.text}")
+                        except requests.exceptions.RequestException as e:
+                            st.error(f"Connection error: {e}")
+
                 categories = {}
                 for lr in case["feature_likelihood_ratios"]:
                     cat = lr["feature_category"]
@@ -1015,10 +1063,22 @@ with tab4:
                         - {len(export_info["available_tiers"])} diagnostic tiers
                         """)
 
+                        # Default to tier 2 where it exists. Tier 1 is broad
+                        # (cardiovascular / respiratory / ...) and tier 3 very
+                        # specific; tier 2 is the level most cases are authored
+                        # around. Still fully selectable -- re-export at tier 1
+                        # by changing this and re-downloading.
+                        _tiers = export_info["available_tiers"]
+                        _default_idx = _tiers.index(2) if 2 in _tiers else 0
                         selected_tier = st.selectbox(
-                            "Select Diagnostic Tier:",
-                            export_info["available_tiers"],
-                            help="Choose which diagnostic tier to use for the simulator",
+                            "Diagnostic Tier for export",
+                            _tiers,
+                            index=_default_idx,
+                            help=(
+                                "Which tier the LR matrix and priors are built from. "
+                                "Defaults to tier 2; change it and re-download to export "
+                                "another tier."
+                            ),
                         )
 
                         col2a, col2b = st.columns(2)

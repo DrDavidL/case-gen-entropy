@@ -886,7 +886,7 @@ async def debug_lr_data(case_id: int, db: Session = Depends(get_db)):
 
 @app.get("/case/{case_id}/simulator-export/lr-matrix-csv")
 async def export_lr_matrix_csv(
-    case_id: int, tier_level: int = 1, db: Session = Depends(get_db)
+    case_id: int, tier_level: int = 2, db: Session = Depends(get_db)
 ):
     """Export feature likelihood ratio matrix as CSV for simulator app."""
     case = db.query(Case).filter(Case.id == case_id).first()
@@ -926,7 +926,10 @@ async def export_lr_matrix_csv(
         )
 
     lr_matrix = create_feature_lr_matrix(
-        case.case_details, diagnostic_framework, feature_likelihood_ratios
+        case.case_details,
+        diagnostic_framework,
+        feature_likelihood_ratios,
+        tier_level=tier_level,
     )
 
     validation = validate_lr_matrix_for_simulator(lr_matrix)
@@ -948,7 +951,7 @@ async def export_lr_matrix_csv(
 
 @app.get("/case/{case_id}/simulator-export/lr-matrix-excel")
 async def export_lr_matrix_excel(
-    case_id: int, tier_level: int = 1, db: Session = Depends(get_db)
+    case_id: int, tier_level: int = 2, db: Session = Depends(get_db)
 ):
     """Export feature likelihood ratio matrix as Excel for simulator app."""
     case = db.query(Case).filter(Case.id == case_id).first()
@@ -988,7 +991,10 @@ async def export_lr_matrix_excel(
         )
 
     lr_matrix = create_feature_lr_matrix(
-        case.case_details, diagnostic_framework, feature_likelihood_ratios
+        case.case_details,
+        diagnostic_framework,
+        feature_likelihood_ratios,
+        tier_level=tier_level,
     )
 
     validation = validate_lr_matrix_for_simulator(lr_matrix)
@@ -1010,7 +1016,7 @@ async def export_lr_matrix_excel(
 
 @app.get("/case/{case_id}/simulator-export/prior-probabilities")
 async def export_prior_probabilities(
-    case_id: int, tier_level: int = 1, db: Session = Depends(get_db)
+    case_id: int, tier_level: int = 2, db: Session = Depends(get_db)
 ):
     """Export prior probabilities for specific tier as JSON for simulator app."""
     case = db.query(Case).filter(Case.id == case_id).first()
