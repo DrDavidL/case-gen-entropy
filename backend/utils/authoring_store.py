@@ -11,13 +11,15 @@ and were lost on refresh. That is the data every downstream goal depends on.
 import logging
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from backend.models.database import (
-    CaseFamily, CaseVersion, AuthoringDiagnosticFramework,
+    AuthoringDiagnosticFramework,
     AuthoringFeatureLikelihoodRatio,
+    CaseFamily,
+    CaseVersion,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,12 +38,14 @@ def _unique_slug(db: Session, base: str) -> str:
     n = 2
     while db.query(CaseFamily.id).filter(CaseFamily.slug == slug).first() is not None:
         suffix = f"-{n}"
-        slug = f"{base[:80 - len(suffix)]}{suffix}"
+        slug = f"{base[: 80 - len(suffix)]}{suffix}"
         n += 1
     return slug
 
 
-def get_or_create_family(db: Session, title: str, family_id: Optional[int] = None) -> CaseFamily:
+def get_or_create_family(
+    db: Session, title: str, family_id: int | None = None
+) -> CaseFamily:
     if family_id is not None:
         family = db.get(CaseFamily, family_id)
         if family is not None:
@@ -70,15 +74,15 @@ def persist_case_version(
     title: str,
     description: str,
     primary_diagnosis: str,
-    case_details: Dict[str, Any],
-    diagnostic_framework: List[Dict[str, Any]],
-    feature_likelihood_ratios: List[Dict[str, Any]],
+    case_details: dict[str, Any],
+    diagnostic_framework: list[dict[str, Any]],
+    feature_likelihood_ratios: list[dict[str, Any]],
     output_format: str,
-    rendered_content: Optional[str] = None,
+    rendered_content: str | None = None,
     render_detached: bool = False,
-    case_detail_id: Optional[int] = None,
-    family_id: Optional[int] = None,
-    parent_version_id: Optional[int] = None,
+    case_detail_id: int | None = None,
+    family_id: int | None = None,
+    parent_version_id: int | None = None,
 ) -> CaseVersion:
     """Write one published case version with its full analysis. Commits."""
     family = get_or_create_family(db, title, family_id)
@@ -96,36 +100,43 @@ def persist_case_version(
         parent_version_id=parent_version_id,
         case_detail_id=case_detail_id,
         output_format=output_format,
-        published_at=datetime.utcnow(),
+        # Naive on purpose: the DateTime columns are naive and every other default in
+        # backend/models/database.py uses utcnow(). A tz-aware value here alone would
+        # mix naive and aware datetimes in the same table.
+        published_at=datetime.utcnow(),  # noqa: DTZ003
     )
     db.add(version)
     db.flush()
 
     for tier in diagnostic_framework or []:
-        db.add(AuthoringDiagnosticFramework(
-            case_version_id=version.id,
-            tier_level=tier.get("tier_level"),
-            diagnostic_buckets=tier.get("buckets"),
-            a_priori_probabilities=tier.get("a_priori_probabilities"),
-        ))
+        db.add(
+            AuthoringDiagnosticFramework(
+                case_version_id=version.id,
+                tier_level=tier.get("tier_level"),
+                diagnostic_buckets=tier.get("buckets"),
+                a_priori_probabilities=tier.get("a_priori_probabilities"),
+            )
+        )
 
     for lr in feature_likelihood_ratios or []:
-        db.add(AuthoringFeatureLikelihoodRatio(
-            case_version_id=version.id,
-            feature_name=lr.get("feature_name"),
-            feature_category=lr.get("feature_category"),
-            diagnostic_bucket=lr.get("diagnostic_bucket"),
-            tier_level=lr.get("tier_level"),
-            likelihood_ratio=lr.get("likelihood_ratio"),
-            provenance="llm_generated",
-        ))
+        db.add(
+            AuthoringFeatureLikelihoodRatio(
+                case_version_id=version.id,
+                feature_name=lr.get("feature_name"),
+                feature_category=lr.get("feature_category"),
+                diagnostic_bucket=lr.get("diagnostic_bucket"),
+                tier_level=lr.get("tier_level"),
+                likelihood_ratio=lr.get("likelihood_ratio"),
+                provenance="llm_generated",
+            )
+        )
 
     db.commit()
     db.refresh(version)
     return version
 
 
-def load_analysis(db: Session, case_detail_id: int) -> Optional[Dict[str, Any]]:
+def load_analysis(db: Session, case_detail_id: int) -> dict[str, Any] | None:
     """Return the framework + LR data for the latest version of a sim-ready case."""
     # Order by id, not version: `version` is monotonic only within a family, so ordering
     # by it across families could return an older record with a higher version number.
