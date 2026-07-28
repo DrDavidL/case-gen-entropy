@@ -56,6 +56,8 @@ from backend.utils.sim_ready_transform import (
     build_default_custom_evaluation,
     build_default_custom_input,
     build_default_learner_tasks,
+    coerce_json_field,
+    normalize_image_links,
     render_sim_ready_content,
 )
 from backend.utils.simulator_export import (
@@ -1136,12 +1138,20 @@ async def get_sim_ready_case(case_id: int):
         )
         if not case:
             raise HTTPException(status_code=404, detail="Sim-ready case not found")
+        custom_input = coerce_json_field(
+            case.custom_input, build_default_custom_input()
+        )
+        custom_input["Image Links"] = normalize_image_links(
+            custom_input.get("Image Links")
+        )
         return {
             "id": case.id,
             "saved_name": case.saved_name,
             "content": case.content,
-            "custom_input": case.custom_input,
-            "custom_evaluation": case.custom_evaluation,
+            "custom_input": custom_input,
+            "custom_evaluation": coerce_json_field(
+                case.custom_evaluation, build_default_custom_evaluation()
+            ),
             "allow_orders": case.allow_orders,
             "learner_tasks": case.learner_tasks,
         }

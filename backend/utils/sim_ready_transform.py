@@ -150,3 +150,54 @@ def extract_door_chart_section(content: str) -> str:
     if idx == -1:
         return ""
     return content[idx:]
+
+
+def coerce_json_field(value, default=None):
+    """Return a dict for a case_details JSON column, whatever shape it holds.
+
+    `case_details.custom_input` and `custom_evaluation` are declared JSON, but the
+    table is shared with the simulator and predates this generator. As of
+    2026-07-28, 64 of 103 rows hold a JSON *string* (double-encoded by whatever
+    wrote them) and 38 hold a dict, with a null and a non-dict for good measure.
+    Reading one straight from the ORM and calling .get() on it raises
+    AttributeError, which is how the editor for existing cases broke.
+
+    Anything that will not decode to a dict yields the default rather than
+    propagating a shape the caller cannot use.
+    """
+    import json
+
+    if value is None:
+        return dict(default) if default else {}
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError):
+            return dict(default) if default else {}
+    if not isinstance(value, dict):
+        return dict(default) if default else {}
+    return value
+
+
+def normalize_image_links(links) -> list[dict]:
+    """Normalize `Image Links` to [{"Test Name": str, "Test Link": str}, ...].
+
+    Three shapes exist in production: 33 rows use dicts carrying a test name
+    alongside the URL, 3 use bare URL strings, and the rest are empty or absent.
+
+    The dict form is the useful one -- the simulator's orders prompt renders "the
+    test name with a clickable link" -- so it is the canonical form here. Editing
+    a case through a URL-only UI would have silently dropped the name from all 33.
+    """
+    if not isinstance(links, list):
+        return []
+    out = []
+    for item in links:
+        if isinstance(item, dict):
+            name = str(item.get("Test Name") or item.get("test_name") or "").strip()
+            url = str(item.get("Test Link") or item.get("test_link") or "").strip()
+        else:
+            name, url = "", str(item or "").strip()
+        if name or url:
+            out.append({"Test Name": name, "Test Link": url})
+    return out

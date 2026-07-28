@@ -27,6 +27,36 @@ with col2:
         logout()
 
 
+def _as_dict(value, default):
+    """Coerce a case_details JSON field to a dict.
+
+    Mirrors backend.utils.sim_ready_transform.coerce_json_field. The shared
+    case_details table holds these as JSON strings on most existing rows.
+    """
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError):
+            return dict(default)
+    return value if isinstance(value, dict) else dict(default)
+
+
+def _norm_links(links):
+    """Normalize Image Links to [{"Test Name", "Test Link"}], accepting bare URLs."""
+    if not isinstance(links, list):
+        return []
+    out = []
+    for item in links:
+        if isinstance(item, dict):
+            name = str(item.get("Test Name") or "").strip()
+            url = str(item.get("Test Link") or "").strip()
+        else:
+            name, url = "", str(item or "").strip()
+        if name or url:
+            out.append({"Test Name": name, "Test Link": url})
+    return out
+
+
 @st.cache_data(ttl=60)
 def _backend_status():
     """Backend build identity. Cached briefly so it refreshes after a deploy."""
@@ -236,7 +266,14 @@ with tab2:
                     "default_custom_input",
                     {"Prespecified Results": "", "Image Links": []},
                 )
-                ci_value = st.session_state.get("sim_custom_input", default_ci)
+                # Belt-and-braces: the backend normalises these now, but this
+                # table is shared with the simulator and most existing rows hold
+                # custom_input as a JSON *string*. Calling .get() on one raises
+                # AttributeError, which is exactly how editing an existing case
+                # used to crash.
+                ci_value = _as_dict(
+                    st.session_state.get("sim_custom_input", default_ci), default_ci
+                )
 
                 prespecified_results = st.text_area(
                     "Prespecified Results",
@@ -246,29 +283,44 @@ with tab2:
                     help="Pre-filled lab/imaging results the simulator should return.",
                 )
 
-                # Image Links — dynamic list
-                existing_links = ci_value.get("Image Links", [])
+                # Image Links — name + URL per row. Most existing cases store
+                # {"Test Name": ..., "Test Link": ...}, and the simulator renders
+                # "the test name with a clickable link", so the name is not
+                # decoration. A URL-only editor would silently discard it on save.
+                existing_links = _norm_links(ci_value.get("Image Links"))
                 if "sim_image_links" not in st.session_state:
-                    st.session_state.sim_image_links = (
-                        existing_links if existing_links else [""]
-                    )
+                    st.session_state.sim_image_links = existing_links or [
+                        {"Test Name": "", "Test Link": ""}
+                    ]
 
-                st.caption("Image Links (one per row)")
+                st.caption("Image Links — test name and URL")
                 updated_links = []
                 for idx, link in enumerate(st.session_state.sim_image_links):
-                    link_val = st.text_input(
-                        f"Image Link {idx + 1}",
-                        value=link,
-                        key=f"img_link_{idx}",
-                        label_visibility="collapsed",
-                        placeholder="https://example.com/image.png",
-                    )
-                    updated_links.append(link_val)
+                    lc1, lc2 = st.columns([1, 2])
+                    with lc1:
+                        name_val = st.text_input(
+                            f"Test Name {idx + 1}",
+                            value=link.get("Test Name", ""),
+                            key=f"img_name_{idx}",
+                            label_visibility="collapsed",
+                            placeholder="CXR",
+                        )
+                    with lc2:
+                        link_val = st.text_input(
+                            f"Test Link {idx + 1}",
+                            value=link.get("Test Link", ""),
+                            key=f"img_link_{idx}",
+                            label_visibility="collapsed",
+                            placeholder="https://example.com/image.png",
+                        )
+                    updated_links.append({"Test Name": name_val, "Test Link": link_val})
 
                 col_add, col_remove, _ = st.columns([1, 1, 3])
                 with col_add:
                     if st.button("Add Link", key="add_img_link"):
-                        st.session_state.sim_image_links.append("")
+                        st.session_state.sim_image_links.append(
+                            {"Test Name": "", "Test Link": ""}
+                        )
                         st.rerun()
                 with col_remove:
                     if len(st.session_state.sim_image_links) > 1 and st.button(
@@ -277,8 +329,11 @@ with tab2:
                         st.session_state.sim_image_links.pop()
                         st.rerun()
 
-                # Filter out empty strings for storage
-                clean_links = [link for link in updated_links if link.strip()]
+                clean_links = [
+                    lk
+                    for lk in updated_links
+                    if lk["Test Name"].strip() or lk["Test Link"].strip()
+                ]
                 st.session_state.sim_custom_input = {
                     "Prespecified Results": prespecified_results,
                     "Image Links": clean_links,
@@ -290,7 +345,10 @@ with tab2:
                 default_ce = case.get(
                     "default_custom_evaluation", {"Additional Instructions": ""}
                 )
-                ce_value = st.session_state.get("sim_custom_evaluation", default_ce)
+                ce_value = _as_dict(
+                    st.session_state.get("sim_custom_evaluation", default_ce),
+                    default_ce,
+                )
 
                 additional_instructions = st.text_area(
                     "Additional Instructions",
