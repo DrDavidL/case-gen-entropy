@@ -15,6 +15,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./backend/
 COPY start_backend.py .
 
+# Build provenance. Declared after COPY so a changed SHA does not bust the
+# dependency layer cache. Surfaced at GET / and in the frontend footer so a
+# stale container is visibly stale — see backend/utils/build_info.py.
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
+ARG IMAGE_TAG=unknown
+ENV GIT_SHA=${GIT_SHA} BUILD_TIME=${BUILD_TIME} IMAGE_TAG=${IMAGE_TAG}
+
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser

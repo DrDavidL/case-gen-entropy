@@ -54,11 +54,19 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Stamp build metadata
+        run: |
+          echo "GIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
       - name: Build backend image
         run: |
           az acr build --registry ${{ env.ACR_NAME }} \
             --image ${{ env.APP }}-backend:${{ github.sha }} \
             --image ${{ env.APP }}-backend:v1 \
+            --build-arg GIT_SHA=$GIT_SHA \
+            --build-arg BUILD_TIME=$BUILD_TIME \
+            --build-arg IMAGE_TAG=${{ github.sha }} \
             --file Dockerfile.backend --platform linux/amd64 .
 
       - name: Build frontend image
@@ -66,6 +74,9 @@ jobs:
           az acr build --registry ${{ env.ACR_NAME }} \
             --image ${{ env.APP }}-frontend:${{ github.sha }} \
             --image ${{ env.APP }}-frontend:v1 \
+            --build-arg GIT_SHA=$GIT_SHA \
+            --build-arg BUILD_TIME=$BUILD_TIME \
+            --build-arg IMAGE_TAG=${{ github.sha }} \
             --file Dockerfile.frontend --platform linux/amd64 .
 
       - name: Update backend container app

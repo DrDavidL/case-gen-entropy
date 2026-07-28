@@ -91,6 +91,20 @@ ORM models and that the `include_name` filter stops autogenerate from dropping `
 
 ---
 
+## Deploy integrity
+
+- [x] Unique image tag per build in `deploy-aca.sh` — identical `:v1` tags made
+      `az containerapp update` a no-op `ADR-012`
+- [x] Build provenance (`GIT_SHA`, `BUILD_TIME`, `IMAGE_TAG`) baked into both images,
+      exposed at `GET /` and in the Streamlit footer, with a frontend/backend drift warning
+- [ ] **Re-verify everything believed shipped between 2026-03-10 and 2026-07-28** — the
+      backend ran a March image that whole time. Post-finalization editing (`92e057c`) is the
+      known case; there may be others
+- [ ] Same build stamp for `direct-sim` — its workflow already uses SHA tags so it has no
+      no-op bug, but the React UI shows no version, and learners are the ones reporting issues
+- [ ] Record the generator build in `case_versions` for case provenance — knowing which build
+      authored a case matters once cases span months `ADR-003` `ADR-012`
+
 ## Privacy — track alongside, not after
 
 - [x] Learner orientation copy: **introduce as "Dr. X"** `ADR-009`

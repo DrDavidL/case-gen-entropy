@@ -27,6 +27,52 @@ with col2:
     if st.button("🚪 Logout"):
         logout()
 
+
+@st.cache_data(ttl=60)
+def _backend_status():
+    """Backend build identity. Cached briefly so it refreshes after a deploy."""
+    try:
+        r = requests.get(f"{BACKEND_URL}/", timeout=5)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"error": str(e)[:120]}
+
+
+def render_build_footer():
+    """Show frontend AND backend build stamps.
+
+    Both, deliberately. A `deploy-aca.sh redeploy` no-op left the backend on a
+    four-month-old image while the frontend moved on, and nothing on screen
+    disagreed. A mismatch between these two is the signal that a deploy only
+    half-landed.
+    """
+    fe_sha = os.getenv("GIT_SHA", "unknown")
+    fe_built = os.getenv("BUILD_TIME", "unknown")
+    status = _backend_status()
+
+    st.divider()
+    if "error" in status:
+        st.caption(
+            f"Frontend `{fe_sha}` · built {fe_built}  \n"
+            f":red[Backend unreachable — {status['error']}]"
+        )
+        return
+
+    build = status.get("build", {})
+    be_sha = build.get("git_sha", "unknown")
+    be_built = build.get("build_time", "unknown")
+
+    line = (
+        f"Frontend `{fe_sha}` · built {fe_built}  \n"
+        f"Backend `{be_sha}` · built {be_built}"
+    )
+    if be_sha != fe_sha and "unknown" not in (be_sha, fe_sha):
+        line += "  \n:orange[⚠ Frontend and backend are running different builds.]"
+    if status.get("authoring_persistence") is False:
+        line += "  \n:orange[⚠ Authoring persistence disabled — framework/LR data is not being saved.]"
+    st.caption(line)
+
 if 'generated_case' not in st.session_state:
     st.session_state.generated_case = None
 if 'session_id' not in st.session_state:
@@ -880,3 +926,5 @@ with st.sidebar:
                     st.write(f"- ID {case['id']}: {case['primary_diagnosis']}")
         except:
             st.error("Could not load cases")
+
+render_build_footer()

@@ -243,6 +243,42 @@ the answer; that is adequate for anti-gaming and inadequate for something a meas
 
 ---
 
+## ADR-012 — Every image carries build provenance, surfaced in the UI and the API.
+
+**Status:** ACCEPTED (2026-07-28) · BUILT
+
+**Context.** `deploy-aca.sh redeploy` built the `:v1` tag and then ran
+`az containerapp update --image ...:v1` against an app already running `:v1`. Container Apps
+creates a new revision only when the revision spec changes, so an identical image reference
+was a no-op: the new image landed in ACR, the app kept serving the old one, and the script
+printed success.
+
+The backend ran a **2026-03-10** image until this was found on 2026-07-28. Everything merged
+in between — including `92e057c "updated for editing"`, the post-finalization editing work
+that was Cory's top March request — was never actually live, while `CLAUDE.md` documented it
+as shipped. Nothing in the UI, the API, or the deploy output disagreed.
+
+**Decision.** Two independent fixes, because either alone would have failed:
+
+1. **Unique image tag per build** (`<sha>-<timestamp>`), which forces a new revision. This
+   fixes the deploy.
+2. **Build provenance baked into every image** — `GIT_SHA`, `BUILD_TIME`, `IMAGE_TAG` as
+   Docker build args — surfaced at `GET /` and in the Streamlit footer. This fixes
+   *noticing*, which is the part that actually failed for four months.
+
+The footer shows **both** frontend and backend stamps and warns when they diverge. Drift
+between the two is precisely what happened and precisely what was invisible. It also warns
+when `authoring_persistence` is false.
+
+A build arg is deliberately absent by default, reporting `unknown` rather than a guess — an
+unstamped process is a fact worth seeing, not something to paper over.
+
+**Consequences.** Anything believed shipped between 2026-03-10 and 2026-07-28 needs
+re-verifying once a real deploy lands. `git rev-parse` marks a dirty working tree as
+`<sha>-dirty`, since `az acr build` uploads the working directory rather than a git ref.
+
+---
+
 ## ADR-011 — Item-level storage for learner responses, aggregates computed on read.
 
 **Status:** ACCEPTED (2026-07-28)

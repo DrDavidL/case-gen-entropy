@@ -43,24 +43,46 @@ done
 if [[ "${1:-}" == "redeploy" ]]; then
     echo "=== Rebuilding and redeploying ==="
 
+    # Container Apps creates a new revision only when the revision spec changes.
+    # This block previously built and deployed the SAME `:v1` tag every time, so
+    # `az containerapp update --image ...:v1` was a no-op against an app already
+    # running `:v1` -- the new image landed in ACR and the app kept serving the
+    # old one. The backend ran a 2026-03-10 image until this was found on
+    # 2026-07-28. A unique tag per build is what forces the new revision.
+    GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+    if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+        GIT_SHA="${GIT_SHA}-dirty"
+        echo "WARNING: working tree has uncommitted changes; deploying as ${GIT_SHA}"
+    fi
+    BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    TAG="${GIT_SHA}-$(date +%Y%m%d-%H%M%S)"
+    echo "Image tag: $TAG"
+
+    BUILD_ARGS="--build-arg GIT_SHA=${GIT_SHA} --build-arg BUILD_TIME=${BUILD_TIME} --build-arg IMAGE_TAG=${TAG}"
+
     echo "Building backend image..."
-    az acr build --registry $ACR_NAME --image ${APP}-backend:v1 \
+    az acr build --registry $ACR_NAME --image ${APP}-backend:${TAG} \
+        --image ${APP}-backend:v1 $BUILD_ARGS \
         --file Dockerfile.backend --platform linux/amd64 .
 
     echo "Building frontend image..."
-    az acr build --registry $ACR_NAME --image ${APP}-frontend:v1 \
+    az acr build --registry $ACR_NAME --image ${APP}-frontend:${TAG} \
+        --image ${APP}-frontend:v1 $BUILD_ARGS \
         --file Dockerfile.frontend --platform linux/amd64 .
 
     echo "Updating backend..."
     az containerapp update --name ${APP}-backend --resource-group $RESOURCE_GROUP \
-        --image ${ACR_SERVER}/${APP}-backend:v1
+        --image ${ACR_SERVER}/${APP}-backend:${TAG}
 
     echo "Updating frontend..."
     az containerapp update --name ${APP}-frontend --resource-group $RESOURCE_GROUP \
-        --image ${ACR_SERVER}/${APP}-frontend:v1
+        --image ${ACR_SERVER}/${APP}-frontend:${TAG}
 
     echo ""
     echo "=== Redeploy complete ==="
+    echo "Verify a NEW revision was created (created time should be just now):"
+    az containerapp revision list --name ${APP}-backend --resource-group $RESOURCE_GROUP \
+        --query "[?properties.active].{revision:name, created:properties.createdTime}" -o table
     FRONTEND_FQDN=$(az containerapp show --name ${APP}-frontend --resource-group $RESOURCE_GROUP \
         --query "properties.configuration.ingress.fqdn" -o tsv)
     echo "Frontend: https://$FRONTEND_FQDN"

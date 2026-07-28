@@ -34,6 +34,7 @@ from backend.utils.sim_ready_transform import (
     build_default_custom_evaluation, build_default_learner_tasks,
 )
 from backend.utils.auth import verify_credentials
+from backend.utils.build_info import get_build_info
 
 load_dotenv()
 
@@ -59,6 +60,10 @@ if sim_ready_engine is not None:
     )
     AUTHORING_ENABLED = authoring_schema_ready(sim_ready_engine)
     logger.info("Authoring persistence: %s", "enabled" if AUTHORING_ENABLED else "DISABLED")
+
+_build = get_build_info()
+logger.info("Build: sha=%s built=%s tag=%s",
+            _build["git_sha"], _build["build_time"], _build["image_tag"])
 
 app = FastAPI(title="Medical Case Generator API", version="1.0.0")
 
@@ -92,7 +97,17 @@ def retry_db_operation(operation, max_retries=3, delay=1):
 
 @app.get("/")
 async def root():
-    return {"message": "Medical Case Generator API"}
+    """Health check and build identity.
+
+    The build fields are load-bearing: a stale container is otherwise
+    indistinguishable from a current one. Doubles as the Docker HEALTHCHECK
+    target, so keep it cheap and dependency-free.
+    """
+    return {
+        "message": "Medical Case Generator API",
+        "build": get_build_info(),
+        "authoring_persistence": AUTHORING_ENABLED,
+    }
 
 
 @app.post("/preview-case")

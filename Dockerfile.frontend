@@ -15,6 +15,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY frontend/ ./frontend/
 COPY start_frontend.py .
 
+# Build provenance — see backend/utils/build_info.py for why this exists.
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
+ARG IMAGE_TAG=unknown
+ENV GIT_SHA=${GIT_SHA} BUILD_TIME=${BUILD_TIME} IMAGE_TAG=${IMAGE_TAG}
+
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
