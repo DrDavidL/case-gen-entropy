@@ -223,6 +223,20 @@ prefixed `casegen-`.
 - The Door Chart section delimiter (`## PATIENT DOOR CHART and Learner Instructions`) is critical — the frontend splits content on this exact string for editing, and the simulator parses by it. Warnings in the UI tell users not to alter it.
 - Sim-ready Export tab depends on two sources: DB (via `/sim-ready/case/{id}`) for persisted fields, and `st.session_state` for LR/framework data that was never persisted.
 
+## Streamlit gotchas (`frontend/app.py`)
+
+- **`st.rerun()` resets the active tab.** `st.tabs` tracks its selection client-side; a
+  server-forced rerun rebuilds the widget tree and discards it, dropping the user on tab 1. For
+  state mutations that stay within a tab, use `on_click` callbacks — they run before the script
+  re-executes, so the new state is already present when widgets render. Reserve `st.rerun()` for
+  deliberate end-of-flow transitions.
+- **`st.success` / `st.error` inside a callback draws before the tab is laid out.** Stash the
+  outcome in session state and let the script body render it (see `_regenerate_lrs`).
+- **State derived once is never refreshed.** Anything initialised with
+  `if "key" not in st.session_state` persists across case loads. `sim_image_links` did exactly
+  this and leaked one case's image links into another, which then got saved. When loading a case,
+  clear every derived key, not just the ones the loader happens to set.
+
 ## Package Management
 
 - Use `uv` for Python package management, not `pip install`.

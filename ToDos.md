@@ -14,7 +14,7 @@ shared database carries the `authoring` schema.
 
 | | |
 |---|---|
-| case-gen live build | `000f566` — verify at `GET /` on the backend |
+| case-gen live build | `f80f72f` — verify at `GET /` on the backend |
 | direct-sim live build | `683fff9` — verify at `GET /api/version` |
 | Shared DB revision | `0002_authoring_schema` |
 | Deploy | push to `main` in either repo; both pipelines are green |
@@ -27,14 +27,21 @@ Phase 2.
 the bottom of this file; defaults are recorded in
 `docs/Final_Orders_Oracle_Proposal.docx` §12, so Phase 2 is not blocked on them.
 
-**Three things that bit us today, worth knowing before touching related code:**
+**Five things that bit us on 2026-07-28, worth knowing before touching related code:**
 
 1. `deploy-aca.sh redeploy` silently no-op'd for four months because it reused a mutable `:v1`
    tag. Fixed, and every image now carries a build stamp — check it after any deploy `ADR-012`
 2. `case_details` JSON columns hold heterogeneous shapes. Never call `.get()` on them without
    coercing first `ADR-013`
-3. This repo's pre-push hook runs system `ruff 0.9.4`, not the newer `uvx` one. Check against
-   both before pushing, or the push is rejected.
+3. The pre-push hook runs system `ruff 0.9.4`, not the newer `uvx` one. Check **both**
+   `ruff check .` and `ruff format --check .` with the system binary before pushing.
+4. **Never put `git push` in the same Bash call as `git add`/`git commit`.** The pre-push hook
+   matches `git push` at any line start and blocks the *entire* call, so the commit silently
+   does not run.
+5. In `frontend/app.py`, **`st.rerun()` resets the active tab** — `st.tabs` keeps its selection
+   client-side and a server-forced rerun discards it. Use `on_click` callbacks for in-tab state
+   mutations. Also: state derived once via `if "key" not in st.session_state` is never
+   refreshed, which silently leaked one case's image links into another.
 
 **Infrastructure note:** an older generation of this app (`backend-app`, `frontend-app`,
 `redis-app` on `medical-case-env` in `casegen-rg`) was found live on Sept 2025 code, pointed at
@@ -103,6 +110,24 @@ ORM models and that the `include_name` filter stops autogenerate from dropping `
       `docs/llm-panels.md` §7
 
 ## Phase 4 — Editing model
+
+**Raised 2026-07-28 while fixing a UI bug; do these before, or as part of, the rest of Phase 4.**
+The trigger was "Add Link jumps tabs", but investigating it exposed that both editing workflows
+(new draft, loaded existing case) share one `st.session_state` slot with no ownership boundary.
+That is what let one case's image links leak into another.
+
+- [ ] **Guard the draft-clobber path.** Loading an existing case overwrites an unsaved draft
+      silently. Same class of bug as the image-link leak, still present
+- [ ] **Make save semantics explicit.** "Update Case in Database" mutates in place and bypasses
+      versioning entirely, contradicting `ADR-003`. Once versioning is wired through, the actions
+      become *Save as new case* / *Save as new version* / *Update in place (correction)*
+- [ ] **Then** revisit whether new-case and existing-case editing want separate tabs. Deferred
+      deliberately: more tabs alone would not fix the shared-state problem, and splitting would
+      duplicate ~600 lines of editor UI that would drift. Settle the semantics first — the tab
+      question mostly dissolves
+- [ ] Audit remaining session-state keys derived via `if "key" not in st.session_state` for the
+      same never-refreshed defect that hit `sim_image_links`
+
 
 - [ ] Structured field editing replaces split-markdown editing `ADR-002`
 - [ ] Renderer writes `case_details.content` on save
