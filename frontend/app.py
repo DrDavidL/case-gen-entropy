@@ -278,7 +278,7 @@ with tab2:
                         st.rerun()
 
                 # Filter out empty strings for storage
-                clean_links = [l for l in updated_links if l.strip()]
+                clean_links = [link for link in updated_links if link.strip()]
                 st.session_state.sim_custom_input = {
                     "Prespecified Results": prespecified_results,
                     "Image Links": clean_links,
