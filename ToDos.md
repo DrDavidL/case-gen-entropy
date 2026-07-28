@@ -7,6 +7,42 @@ Simulator-side work is tracked separately in `../direct-sim/FINAL_ORDERS_TODO.md
 
 ---
 
+## Start here — state as of 2026-07-28
+
+**Phase 1 is complete and live.** Both apps are deployed, CI works in both repos, and the
+shared database carries the `authoring` schema.
+
+| | |
+|---|---|
+| case-gen live build | `000f566` — verify at `GET /` on the backend |
+| direct-sim live build | `683fff9` — verify at `GET /api/version` |
+| Shared DB revision | `0002_authoring_schema` |
+| Deploy | push to `main` in either repo; both pipelines are green |
+
+**The immediate next action** is the verification pass under "Deploy integrity" below — the
+post-finalization editing flow has never been exercised in production. Do that before starting
+Phase 2.
+
+**Then** Phase 2 (Final Orders). The research group has not yet answered the open questions at
+the bottom of this file; defaults are recorded in
+`docs/Final_Orders_Oracle_Proposal.docx` §12, so Phase 2 is not blocked on them.
+
+**Three things that bit us today, worth knowing before touching related code:**
+
+1. `deploy-aca.sh redeploy` silently no-op'd for four months because it reused a mutable `:v1`
+   tag. Fixed, and every image now carries a build stamp — check it after any deploy `ADR-012`
+2. `case_details` JSON columns hold heterogeneous shapes. Never call `.get()` on them without
+   coercing first `ADR-013`
+3. This repo's pre-push hook runs system `ruff 0.9.4`, not the newer `uvx` one. Check against
+   both before pushing, or the push is rejected.
+
+**Infrastructure note:** an older generation of this app (`backend-app`, `frontend-app`,
+`redis-app` on `medical-case-env` in `casegen-rg`) was found live on Sept 2025 code, pointed at
+the same production database. It is now scaled to zero with ingress disabled. Deletion commands
+are in "Deferred / revisit" below.
+
+---
+
 ## Phase 1 — Stop the data loss, unify the record
 
 Prerequisites for everything else.
@@ -165,3 +201,53 @@ are the loose ends it surfaced.
 - [x] **`/regenerate-lrs` exposed in the Edit tab.** Re-runs LR generation against the current
       framework with exact bucket names — the fix for renaming a diagnostic bucket, which
       otherwise orphans every LR pointing at the old name `ADR-007`
+
+---
+
+## Deferred / revisit
+
+Parked deliberately, with the reasoning, so a later session can pick them up rather than
+rediscover them.
+
+### Infrastructure cleanup — after a week of stability
+
+The old generation is scaled to zero with ingress disabled (2026-07-28), not deleted, so it
+stays trivially reversible. Once satisfied nothing depended on it:
+
+```bash
+az containerapp delete -n backend-app  -g casegen-rg --yes
+az containerapp delete -n frontend-app -g casegen-rg --yes
+az containerapp delete -n redis-app    -g casegen-rg --yes
+az containerapp env delete -n medical-case-env -g casegen-rg --yes
+az group delete --name medical-case-generator-rg --yes   # stopped ACI + medcasegen5986 ACR
+```
+
+Then `medical-case-env-logs` once the env is gone. **Do not prune `labdlcontainer`** — it is a
+Standard registry in `lab-simulation` and may serve other projects.
+
+- [ ] Delete the idled old generation (above)
+- [ ] Revert if anything breaks: `--min-replicas 1` + `az containerapp ingress enable`
+
+### direct-sim dependency advisories
+
+- [ ] **25 high / 5 medium open Dependabot alerts**, no PRs open. The `react-router` cluster
+      includes an unauthenticated RCE advisory reachable from a page students load.
+      `npm audit fix` touches 34 packages with no major bumps. Deferred because broad dependency
+      upgrades are not a default action — needs a deliberate call, ideally the targeted
+      `react-router-dom` bump first, then `npm run build` and an SPA smoke test.
+- [ ] A formatting-only commit (`542c08e`) is committed but unpushed in `direct-sim`, blocked
+      behind the same audit gate.
+
+### Security posture
+
+- [ ] **`APP_PASSWORD` is a publicly known default.** Accepted 2026-07-28 on the grounds that
+      UNMC uses it broadly. Recorded as a rotation candidate, not a blocker: it is the only gate
+      on a generator that writes to the shared production database. Rotating means a Container
+      Apps secret update plus a `.env` change.
+
+### Carried over from the main merge
+
+- [ ] `tier_level` on the beta `feature_likelihood_ratios` table — `main` added it via a runtime
+      `ALTER TABLE` in `_ensure_schema()`, deliberately not ported (runtime DDL conflicts with
+      Alembic ownership, `ADR-012`). The column may already exist from a previous boot. Check,
+      then handle it when the beta tables migrate into `authoring` `ADR-001`

@@ -243,6 +243,40 @@ the answer; that is adequate for anti-gaming and inadequate for something a meas
 
 ---
 
+## ADR-013 — Treat the shared `case_details` table as schema-loose; coerce on read.
+
+**Status:** ACCEPTED (2026-07-28) · BUILT
+
+**Context.** `case_details` is declared with `JSON` columns but is shared with the simulator
+and predates this generator. As of 2026-07-28, `custom_input` holds a JSON **string** in 64 of
+103 rows, a dict in 38, a null in one, and something that decodes to a non-dict in one.
+`Image Links` inside it has three shapes: `[{"Test Name", "Test Link"}]` in 33 rows, bare URL
+strings in 3, empty or absent in the rest.
+
+The editor assumed a dict and crashed on `.get()`, so 65 of 103 cases could not be opened.
+Worse, it rendered links as bare URLs and wrote plain strings back, so saving any of the 33
+named-link cases would have silently discarded the test name — which the simulator's orders
+prompt actually renders.
+
+Notably, `direct-sim` already types these as `dict | str | None` on `CaseResponse` and
+`OrdersRequest`. The simulator has always known the column is heterogeneous; the generator was
+the only side assuming otherwise.
+
+**Decision.** The generator owns neither the table nor its history, so it validates rather than
+assumes. `coerce_json_field()` and `normalize_image_links()` normalise on read, falling back to
+defaults for anything undecodable rather than propagating a shape the caller cannot use.
+`GET /sim-ready/case/{id}` normalises centrally so every consumer gets a usable shape, and the
+editor coerces again on its own — the table is shared, so no single layer can guarantee it.
+
+**Consequences.** Any new field read from `case_details` needs the same treatment. Do not add
+`.get()` calls against these columns without coercing first. Verified by replaying all 103
+production rows: 65 would have crashed the old editor, 0 fail now, 33 test names preserved.
+
+**Applies more broadly:** the same reasoning covers any table this repo shares with the
+simulator. Writing is ours to control; reading is not.
+
+---
+
 ## ADR-012 — Every image carries build provenance, surfaced in the UI and the API.
 
 **Status:** ACCEPTED (2026-07-28) · BUILT
