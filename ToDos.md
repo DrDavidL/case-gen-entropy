@@ -103,9 +103,16 @@ ORM models and that the `include_name` filter stops autogenerate from dropping `
       `az containerapp update` a no-op `ADR-012`
 - [x] Build provenance (`GIT_SHA`, `BUILD_TIME`, `IMAGE_TAG`) baked into both images,
       exposed at `GET /` and in the Streamlit footer, with a frontend/backend drift warning
-- [ ] **Re-verify everything believed shipped between 2026-03-10 and 2026-07-28** — the
-      backend ran a March image that whole time. Post-finalization editing (`92e057c`) is the
-      known case; there may be others
+- [ ] **Verify post-finalization editing actually works in production.** The backend ran a
+      2026-03-10 image until 2026-07-28, so `92e057c` (2026-03-20) never ran — it is the *only*
+      undeployed pre-today commit, checked against the log, so this is a focused pass rather
+      than an audit. It is also Cory's top March request, and `CLAUDE.md` documents it as
+      shipped. Test:
+      - [ ] Edit tab → "Load Existing Sim-Ready Case for Editing" → case list populates
+      - [ ] Load a finalized case; content and simulator fields prefill
+      - [ ] Edit History Questions / Physical Exam / Framework / LR sections
+      - [ ] Save → `PUT /sim-ready/case/{id}` returns 200 and changes persist on reload
+      - [ ] Confirm it updated in place rather than creating a duplicate case
 - [x] Same build stamp for `direct-sim` — unauthenticated `GET /api/version`, startup log, and
       sidebar footer. One image serves both SPA and API there, so a single stamp covers both
 - [ ] Record the generator build in `case_versions` for case provenance — knowing which build
