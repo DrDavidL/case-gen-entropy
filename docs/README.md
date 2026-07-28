@@ -25,7 +25,7 @@ declares what it covers and what it does not, so you can stop reading early.
 | `llm-panels.md` | Building or changing the Oracle, LR re-assessment, or anything that fans out to N raters | Case storage; simulator behavior |
 | `final-orders-sct.md` | Building the Final Orders authoring flow or its schema | Simulator-side suppression and rating collection |
 | `privacy-data-handling.md` | Touching transcripts, learner data, exports, or schema access | Case authoring |
-| `Final_Orders_Oracle_Proposal.docx` | You need the research-group-facing version, or the methodology rationale in prose | Implementation detail |
+| `Final_Orders_Oracle_Proposal.docx` | You need the research-group-facing version, the methodology rationale in prose, Cory's original requests verbatim (App. C), or an illustration of Oracle output (App. D) | Implementation detail |
 | `Status_and_Decisions_Needed.docx` | Handing the group a status update, or checking which decisions are still open | Design rationale (see the proposal) |
 
 ## The other repository
