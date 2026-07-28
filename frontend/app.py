@@ -27,6 +27,56 @@ with col2:
         logout()
 
 
+def _regenerate_lrs():
+    """Re-run LR generation and swap the result into session state.
+
+    An on_click callback so the refreshed list renders in the same pass. The
+    st.rerun() this replaces ejected the user from the Edit tab back to Generate,
+    because st.tabs loses its client-side selection on a server-forced rerun.
+    Outcome is stashed for the script body to render -- st.success/st.error inside
+    a callback would draw before the tab is laid out.
+    """
+    case = st.session_state.get("generated_case") or {}
+    try:
+        r = requests.post(
+            f"{BACKEND_URL}/regenerate-lrs",
+            json={
+                "session_id": st.session_state.session_id,
+                "case_details": case.get("case_details"),
+                "diagnostic_framework": case.get("diagnostic_framework"),
+            },
+            headers=get_auth_header(),
+            timeout=300,
+        )
+        if r.status_code == 200:
+            case["feature_likelihood_ratios"] = r.json()["feature_likelihood_ratios"]
+            st.session_state.generated_case = case
+            st.session_state.regen_result = (
+                "success",
+                f"Regenerated {len(case['feature_likelihood_ratios'])} likelihood ratios.",
+            )
+        else:
+            st.session_state.regen_result = ("error", f"Regeneration failed: {r.text}")
+    except requests.exceptions.RequestException as e:
+        st.session_state.regen_result = ("error", f"Connection error: {e}")
+
+
+def _add_image_link():
+    """Append a blank image-link row.
+
+    Used as an on_click callback rather than mutate-then-st.rerun(): callbacks run
+    before the script re-executes, so the new row renders in the same pass. The
+    st.rerun() this replaces reset the active tab, because st.tabs keeps its
+    selection client-side and a server-forced rerun discards it.
+    """
+    st.session_state.sim_image_links.append({"Test Name": "", "Test Link": ""})
+
+
+def _remove_image_link():
+    if len(st.session_state.get("sim_image_links", [])) > 1:
+        st.session_state.sim_image_links.pop()
+
+
 def _as_dict(value, default):
     """Coerce a case_details JSON field to a dict.
 
@@ -317,17 +367,14 @@ with tab2:
 
                 col_add, col_remove, _ = st.columns([1, 1, 3])
                 with col_add:
-                    if st.button("Add Link", key="add_img_link"):
-                        st.session_state.sim_image_links.append(
-                            {"Test Name": "", "Test Link": ""}
-                        )
-                        st.rerun()
+                    st.button("Add Link", key="add_img_link", on_click=_add_image_link)
                 with col_remove:
-                    if len(st.session_state.sim_image_links) > 1 and st.button(
-                        "Remove Last", key="rm_img_link"
-                    ):
-                        st.session_state.sim_image_links.pop()
-                        st.rerun()
+                    if len(st.session_state.sim_image_links) > 1:
+                        st.button(
+                            "Remove Last",
+                            key="rm_img_link",
+                            on_click=_remove_image_link,
+                        )
 
                 clean_links = [
                     lk
@@ -505,8 +552,9 @@ with tab2:
                 # bucket orphans every LR pointing at the old one.
                 regen_col, regen_msg = st.columns([1, 3])
                 with regen_col:
-                    do_regen = st.button(
+                    st.button(
                         "Regenerate LRs",
+                        on_click=_regenerate_lrs,
                         help=(
                             "Re-runs likelihood-ratio generation against the current "
                             "diagnostic framework, using exact bucket names. Replaces "
@@ -518,35 +566,9 @@ with tab2:
                         "Run this after renaming diagnostic buckets, so the LRs "
                         "point at the buckets that now exist."
                     )
-                if do_regen:
-                    with st.spinner("Regenerating likelihood ratios..."):
-                        try:
-                            regen = requests.post(
-                                f"{BACKEND_URL}/regenerate-lrs",
-                                json={
-                                    "session_id": st.session_state.session_id,
-                                    "case_details": case.get("case_details"),
-                                    "diagnostic_framework": case.get(
-                                        "diagnostic_framework"
-                                    ),
-                                },
-                                headers=get_auth_header(),
-                                timeout=300,
-                            )
-                            if regen.status_code == 200:
-                                case["feature_likelihood_ratios"] = regen.json()[
-                                    "feature_likelihood_ratios"
-                                ]
-                                st.session_state.generated_case = case
-                                st.success(
-                                    f"Regenerated {len(case['feature_likelihood_ratios'])} "
-                                    "likelihood ratios."
-                                )
-                                st.rerun()
-                            else:
-                                st.error(f"Regeneration failed: {regen.text}")
-                        except requests.exceptions.RequestException as e:
-                            st.error(f"Connection error: {e}")
+                _regen = st.session_state.pop("regen_result", None)
+                if _regen:
+                    (st.success if _regen[0] == "success" else st.error)(_regen[1])
 
                 categories = {}
                 for lr in case["feature_likelihood_ratios"]:
@@ -809,6 +831,12 @@ with tab2:
                             st.session_state.editing_mode = True
                             st.session_state.session_id = None
                             st.session_state.editing_existing_case_id = sim_case["id"]
+                            # sim_image_links is derived once ("if not in session_state")
+                            # and never refreshed, so without this the previously loaded
+                            # case's image links persist into this one -- and get saved
+                            # onto it. Drop it so the editor re-derives from the case
+                            # just loaded.
+                            st.session_state.pop("sim_image_links", None)
 
                             st.success(
                                 f"Loaded **{sim_case['saved_name']}** (ID: {sim_case['id']}) for editing."
