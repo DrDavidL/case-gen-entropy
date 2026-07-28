@@ -29,6 +29,8 @@ from backend.models.editing_schemas import (
     CaseEditRequest,
     CasePreviewResponse,
     CaseSaveRequest,
+    RegenerateLRRequest,
+    RegenerateLRResponse,
     SessionData,
     SimReadyCasePreviewResponse,
     SimReadyCaseUpdateRequest,
@@ -38,6 +40,13 @@ from backend.models.schemas import (
     CaseOutputFiles,
     CaseResponse,
     SimReadyCaseResponse,
+)
+from backend.models.structured_outputs import (
+    CaseDetailsStructured,
+    DiagnosticBucketStructured,
+    DiagnosticFrameworkStructured,
+    DiagnosticTierStructured,
+    ProbabilityEntry,
 )
 from backend.utils.auth import verify_credentials
 from backend.utils.authoring_store import load_analysis, persist_case_version
@@ -259,6 +268,124 @@ async def preview_case(
     except Exception as e:
         logger.exception("Failed to generate case preview")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/health")
+async def health_check():
+    """Deployment diagnostics: which services are reachable and which env vars are set.
+
+    Ported from the pre-divergence `main` lineage, with two secret leaks removed --
+    it returned the raw REDIS_URL (which carries a password) and the raw
+    APP_USERNAME (half of the basic-auth credential), and logged the Redis URL on
+    error. This endpoint is unauthenticated, so it reports only presence.
+    """
+    env_vars = {
+        "OPENAI_API_KEY": "Set" if os.getenv("OPENAI_API_KEY") else "Missing",
+        "REDIS_URL": "Set" if os.getenv("REDIS_URL") else "Missing",
+        "POSTGRES_URL": "Set" if os.getenv("POSTGRES_URL") else "Missing",
+        "POSTGRES_URL_SIM_READY": "Set"
+        if os.getenv("POSTGRES_URL_SIM_READY")
+        else "Missing",
+        "APP_USERNAME": "Set" if os.getenv("APP_USERNAME") else "Missing",
+        "APP_PASSWORD": "Set" if os.getenv("APP_PASSWORD") else "Missing",
+    }
+
+    try:
+        redis_client.ping()
+        redis_status = "Connected"
+    except Exception as e:
+        redis_status = f"Failed: {type(e).__name__}"
+        logger.error("Redis health check failed: %s", str(e)[:200])
+
+    return {
+        "status": "healthy",
+        "build": get_build_info(),
+        "environment": env_vars,
+        "redis": redis_status,
+        "authoring_persistence": AUTHORING_ENABLED,
+    }
+
+
+@app.post("/regenerate-lrs", response_model=RegenerateLRResponse)
+async def regenerate_lrs(
+    request: RegenerateLRRequest, username: str = Depends(verify_credentials)
+):
+    """Regenerate feature likelihood ratios for a session using strict bucket names.
+
+    Ported from the pre-divergence `main` lineage with two changes: it now requires
+    auth (it spends LLM budget and mutates session state, so it belongs with the
+    other mutating endpoints), and it uses the async LLM wrapper so the call does
+    not block the event loop.
+    """
+    session_data: SessionData | None = None
+    try:
+        raw = redis_client.get(f"session:{request.session_id}")
+        if raw:
+            session_data = SessionData.model_validate_json(raw)
+    except Exception as e:
+        logger.warning("Could not load session from Redis: %s", str(e)[:200])
+
+    if session_data is None:
+        if not (request.case_details and request.diagnostic_framework):
+            raise HTTPException(
+                status_code=404,
+                detail="Session not found or expired, and no case/framework provided",
+            )
+        session_data = SessionData(
+            case_details=request.case_details,
+            diagnostic_framework=request.diagnostic_framework,
+            feature_likelihood_ratios=[],
+            original_input=CaseInput(description="", primary_diagnosis=""),
+        )
+
+    try:
+        case_struct = CaseDetailsStructured.model_validate(session_data.case_details)
+        tiers_struct = []
+        for tier in session_data.diagnostic_framework:
+            probs = tier.get("a_priori_probabilities", {})
+            tiers_struct.append(
+                DiagnosticTierStructured(
+                    tier_level=int(tier.get("tier_level", 1)),
+                    buckets=[
+                        DiagnosticBucketStructured(
+                            name=b.get("name", ""), description=b.get("description", "")
+                        )
+                        for b in tier.get("buckets", [])
+                    ],
+                    a_priori_probabilities=[
+                        ProbabilityEntry(bucket_name=k, probability=float(v))
+                        for k, v in probs.items()
+                    ],
+                )
+            )
+        framework_struct = DiagnosticFrameworkStructured(tiers=tiers_struct)
+    except Exception as e:
+        logger.exception("Failed to build structured inputs for LR regeneration")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid case/framework structure: {e}"
+        ) from e
+
+    try:
+        flr_struct = await llm_service.generate_feature_likelihood_ratios_async(
+            case_struct, framework_struct
+        )
+        flr_list = [lr.model_dump() for lr in flr_struct.feature_likelihood_ratios]
+    except Exception as e:
+        logger.exception("LLM LR regeneration failed")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to regenerate likelihood ratios: {e}"
+        ) from e
+
+    try:
+        session_data.feature_likelihood_ratios = flr_list
+        redis_client.setex(
+            f"session:{request.session_id}", 3600, session_data.model_dump_json()
+        )
+    except Exception as e:
+        logger.warning("Failed to persist regenerated LRs to Redis: %s", str(e)[:200])
+
+    logger.info("Regenerated %d LRs for session=%s", len(flr_list), request.session_id)
+    return RegenerateLRResponse(feature_likelihood_ratios=flr_list)
 
 
 @app.put("/edit-case")

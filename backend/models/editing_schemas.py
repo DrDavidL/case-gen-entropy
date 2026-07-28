@@ -87,3 +87,19 @@ class SessionData(BaseModel):
     output_format: str = (
         "beta"  # default "beta" for backward compat with existing sessions
     )
+
+
+class RegenerateLRRequest(BaseModel):
+    """Re-run likelihood-ratio generation against the current session.
+
+    Ported from the pre-divergence `main` lineage. Falls back to an explicit
+    case/framework payload when the Redis session has expired.
+    """
+
+    session_id: str
+    case_details: dict[str, Any] | None = None
+    diagnostic_framework: list[dict[str, Any]] | None = None
+
+
+class RegenerateLRResponse(BaseModel):
+    feature_likelihood_ratios: list[dict[str, Any]]

@@ -14,6 +14,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY backend/ ./backend/
 COPY start_backend.py .
+COPY debug_backend.py .
+
+# Remove reload parameter from start_backend.py for production
+RUN sed -i 's/reload=True/reload=False, workers=1/g' start_backend.py
 
 # Build provenance. Declared after COPY so a changed SHA does not bust the
 # dependency layer cache. Surfaced at GET / and in the frontend footer so a

@@ -1,14 +1,19 @@
 // Azure Container Apps Bicep template
 param location string = resourceGroup().location
 param environmentName string = 'medical-case-env'
+param deploymentTimestamp string = utcNow()
 param containerRegistry string = 'labdlcontainer.azurecr.io'
 param acrUsername string
 @secure()
 param acrPassword string
-@secure() 
+@secure()
 param postgresUrl string
 @secure()
 param openaiApiKey string
+@secure()
+param appUsername string
+@secure()
+param appPassword string
 
 // Container Apps Environment
 resource containerAppEnvironment 'Microsoft.App/managedEnvironments@2022-03-01' = {
@@ -94,6 +99,14 @@ resource backendApp 'Microsoft.App/containerApps@2022-03-01' = {
           name: 'acr-password'
           value: acrPassword
         }
+        {
+          name: 'app-username'
+          value: appUsername
+        }
+        {
+          name: 'app-password'
+          value: appPassword
+        }
       ]
       registries: [
         {
@@ -133,7 +146,23 @@ resource backendApp 'Microsoft.App/containerApps@2022-03-01' = {
             }
             {
               name: 'REDIS_URL'
-              value: 'redis://redis-app:6379/0'
+              value: 'redis://redis-app.${environmentName}.internal:6379/0'
+            }
+            {
+              name: 'APP_USERNAME'
+              secretRef: 'app-username'
+            }
+            {
+              name: 'APP_PASSWORD'
+              secretRef: 'app-password'
+            }
+            {
+              name: 'DEPLOYMENT_TIMESTAMP'
+              value: deploymentTimestamp
+            }
+            {
+              name: 'ENVIRONMENT'
+              value: 'production'
             }
           ]
         }
@@ -157,6 +186,14 @@ resource frontendApp 'Microsoft.App/containerApps@2022-03-01' = {
         {
           name: 'acr-password'
           value: acrPassword
+        }
+        {
+          name: 'app-username'
+          value: appUsername
+        }
+        {
+          name: 'app-password'
+          value: appPassword
         }
       ]
       registries: [
@@ -190,6 +227,14 @@ resource frontendApp 'Microsoft.App/containerApps@2022-03-01' = {
             {
               name: 'BACKEND_URL'
               value: 'https://${backendApp.properties.configuration.ingress.fqdn}'
+            }
+            {
+              name: 'APP_USERNAME'
+              secretRef: 'app-username'
+            }
+            {
+              name: 'APP_PASSWORD'
+              secretRef: 'app-password'
             }
           ]
         }

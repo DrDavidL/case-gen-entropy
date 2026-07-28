@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# DEPRECATED: Manual deployment to Azure Container Instances is deprecated.
+# Use Container Apps via deploy-container-apps.sh or GitHub Actions instead.
 # Manual Deployment Script for Azure Container Instances
 # Run this AFTER setup-azure.sh and editing deployment-config.yaml
 
@@ -8,7 +10,7 @@ set -e
 RESOURCE_GROUP="medical-case-generator-rg"
 CONTAINER_GROUP_NAME="medical-case-generator"
 
-echo "🚀 Deploying Medical Case Generator to Azure..."
+echo "⚠️  DEPRECATED: Use deploy-container-apps.sh for Container Apps. Proceeding with legacy ACI deployment..."
 
 # Check if deployment config exists
 if [ ! -f deployment-config.yaml ]; then

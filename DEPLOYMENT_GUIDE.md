@@ -1,4 +1,4 @@
-# Complete Azure Container Instances Deployment Guide
+# Azure Container Apps Deployment Guide
 
 ## 🚀 Phase 1: Local Setup & Testing
 
@@ -31,40 +31,25 @@ nano .env  # Edit with your actual values
 ./test-local.sh
 ```
 
-## 🏗️ Phase 2: Azure Infrastructure Setup
+## 🏗️ Phase 2: Azure Infrastructure Setup (Container Apps)
 
-### 4. Run Azure Setup
+### 4. Prepare GitHub Secrets (see github-secrets-setup.md)
+Required:
+- `AZURE_CREDENTIALS` (Service Principal JSON: clientId, clientSecret, subscriptionId, tenantId)
+- `ACR_NAME`, `ACR_USERNAME`, `ACR_PASSWORD`
+- `POSTGRES_URL`, `OPENAI_API_KEY`
+- `APP_USERNAME`, `APP_PASSWORD`
+
+### 5. (Optional) One-time infra creation
 ```bash
-# Make script executable
-chmod +x setup-azure.sh
-
-# Run setup (takes 5-10 minutes)
-./setup-azure.sh
-
-# Save the output values for GitHub secrets!
+az group create --name medical-case-generator-rg --location eastus
 ```
 
-### 5. Create Secure Deployment Config
+## 🚀 Phase 3: Manual Deployment (Optional)
+
+### 6. Deploy to Azure Container Apps via Bicep
 ```bash
-# Create deployment config with secrets (local only)
-chmod +x create-deployment-config.sh
-./create-deployment-config.sh
-
-# This creates deployment-config.yaml locally (git-ignored)
-# NEVER commit this file - it contains secrets!
-```
-
-## 🚀 Phase 3: Manual Deployment
-
-### 6. Deploy to Azure
-```bash
-# Make script executable  
-chmod +x deploy-manual.sh
-
-# Deploy
-./deploy-manual.sh
-
-# Your app will be live in ~2 minutes!
+./deploy-container-apps.sh
 ```
 
 ## 🔄 Phase 4: GitHub Actions CI/CD
@@ -75,11 +60,11 @@ Follow `github-secrets-setup.md` to configure:
 - `ACR_NAME`, `ACR_USERNAME`, `ACR_PASSWORD`
 - `POSTGRES_URL`, `OPENAI_API_KEY`
 
-### 8. Enable Auto-Deployment
+### 8. Enable Auto-Deployment (Container Apps)
 ```bash
 # Push to trigger deployment
 git add .
-git commit -m "Deploy to Azure Container Instances"
+git commit -m "Deploy to Azure Container Apps"
 git push origin main
 
 # Watch GitHub Actions tab for deployment progress
@@ -87,16 +72,14 @@ git push origin main
 
 ## 📊 Phase 5: Monitoring & Management
 
-### 9. Monitor Your App
+### 9. Monitor Your App (Container Apps)
 ```bash
-# Check container status
-az container show --resource-group medical-case-generator-rg --name medical-case-generator
-
 # View logs
-az container logs --resource-group medical-case-generator-rg --name medical-case-generator --container-name backend
+az containerapp logs show --name backend-app --resource-group medical-case-generator-rg --follow
 
-# Monitor costs
-az consumption usage list --scope /subscriptions/$(az account show --query id --output tsv)/resourceGroups/medical-case-generator-rg
+# Show FQDNs
+az containerapp show --name backend-app --resource-group medical-case-generator-rg --query "properties.configuration.ingress.fqdn" -o tsv
+az containerapp show --name frontend-app --resource-group medical-case-generator-rg --query "properties.configuration.ingress.fqdn" -o tsv
 ```
 
 ### 10. Scale & Update
@@ -110,19 +93,19 @@ az consumption usage list --scope /subscriptions/$(az account show --query id --
 
 | Resource | Monthly Cost |
 |----------|--------------|
-| Container Instances | $20-40 |
+| Container Apps | $10-30 |
 | Container Registry | $5 |
 | Bandwidth | $5-10 |
-| **Total** | **~$30-55/month** |
+| **Total** | **~$20-45/month** |
 
 ## 🔧 Troubleshooting
 
 ### Container Won't Start
 ```bash
 # Check logs for all containers
-az container logs --resource-group medical-case-generator-rg --name medical-case-generator --container-name backend
-az container logs --resource-group medical-case-generator-rg --name medical-case-generator --container-name frontend
-az container logs --resource-group medical-case-generator-rg --name medical-case-generator --container-name redis
+az containerapp logs show --name backend-app --resource-group medical-case-generator-rg --follow
+az containerapp logs show --name frontend-app --resource-group medical-case-generator-rg --follow
+az containerapp logs show --name redis-app --resource-group medical-case-generator-rg --follow
 ```
 
 ### Database Connection Issues
@@ -133,7 +116,7 @@ az container logs --resource-group medical-case-generator-rg --name medical-case
 ### High Costs
 - Monitor with Azure Cost Management
 - Use container instance scheduling for dev environments
-- Consider Azure Container Apps for auto-scaling
+- Use Azure Container Apps minimal replicas and autoscaling
 
 ## ✅ Success Checklist
 

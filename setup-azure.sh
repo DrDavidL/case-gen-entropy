@@ -1,11 +1,13 @@
 #!/bin/bash
 
+# DEPRECATED: Azure Container Instances setup is deprecated. Use Container Apps (deploy-container-apps.sh) instead.
+# This script is kept for reference only and may be removed in the future.
 # Azure Container Instances Setup Script for Medical Case Generator
 # Run this script after installing Azure CLI and logging in with 'az login'
 
 set -e  # Exit on any error
 
-echo "🏥 Setting up Medical Case Generator on Azure..."
+echo "⚠️  DEPRECATED: Use deploy-container-apps.sh for Container Apps. Proceeding with legacy ACI setup..."
 
 # Configuration - CHANGE THESE VALUES
 RESOURCE_GROUP="medical-case-generator-rg"
