@@ -138,6 +138,46 @@ def persist_case_version(
     return version
 
 
+def snapshot_version(version: CaseVersion) -> dict[str, Any]:
+    """Everything a successor version carries forward, as plain values.
+
+    Read while the instance is live and returned detached from the session on purpose.
+    Writing a new version commits, which expires every loaded instance; closing the
+    session then detaches them, so a later attribute access would try to refresh a
+    detached object and raise. Plain dicts are immune to both.
+    """
+    return {
+        "version_id": version.id,
+        "family_id": version.case_family_id,
+        "version": version.version,
+        "title": version.title,
+        "description": version.description or "",
+        "primary_diagnosis": version.primary_diagnosis or "",
+        "content_structured": version.content_structured or {},
+        "content_rendered": version.content_rendered,
+        "render_detached": bool(version.render_detached),
+        "oracle_specialty": version.oracle_specialty,
+        "diagnostic_framework": [
+            {
+                "tier_level": f.tier_level,
+                "buckets": f.diagnostic_buckets,
+                "a_priori_probabilities": f.a_priori_probabilities,
+            }
+            for f in sorted(version.frameworks, key=lambda f: f.tier_level or 0)
+        ],
+        "feature_likelihood_ratios": [
+            {
+                "feature_name": lr.feature_name,
+                "feature_category": lr.feature_category,
+                "diagnostic_bucket": lr.diagnostic_bucket,
+                "tier_level": lr.tier_level,
+                "likelihood_ratio": lr.likelihood_ratio,
+            }
+            for lr in version.feature_lrs
+        ],
+    }
+
+
 def load_analysis(db: Session, case_detail_id: int) -> dict[str, Any] | None:
     """Return the framework + LR data for the latest version of a sim-ready case."""
     # Order by id, not version: `version` is monotonic only within a family, so ordering

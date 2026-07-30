@@ -1,6 +1,6 @@
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from backend.models.schemas import CaseInput
 
@@ -127,12 +127,92 @@ class CaseSaveRequest(BaseModel):
 
 
 class SimReadyCaseUpdateRequest(BaseModel):
+    """Save an edited case that was loaded from the database.
+
+    `save_mode` exists because the previous behaviour — always overwrite the row —
+    bypassed versioning entirely (ADR-003). An edit left no record that it happened, so
+    learner runs from before and after an edit were silently pooled, and the Oracle's
+    structured record was left describing the pre-edit case.
+    """
+
     saved_name: str | None = None
     content: str | None = None
     custom_input: dict[str, Any] | None = None
     custom_evaluation: dict[str, Any] | None = None
     allow_orders: bool | None = None
     learner_tasks: str | None = None
+
+    # Default is the safe one. `in_place` is for corrections an author does not want
+    # recorded as a version, and it deliberately leaves the structured record behind —
+    # the Oracle's parity check then blocks until the content is re-read.
+    save_mode: Literal["new_version", "in_place"] = "new_version"
+
+    # Re-read the edited markdown into the structured record. Null means "decide from
+    # whether the content actually changed", which is right almost always: an edit to
+    # only the learner tasks or the Final Orders needs no model call, and an edit to the
+    # case document does. True/False force it either way.
+    resync_structured: bool | None = None
+
+
+class SimReadyCaseCopyRequest(BaseModel):
+    """Fork an edited case into a new simulator row and a new case family.
+
+    For a genuine variant of a case, not for an edit — an edit is a new version of the
+    same family, so learner performance stays attributable to one case concept.
+    """
+
+    saved_name: str = Field(
+        min_length=1,
+        description="Name for the new case. Required: the point is that it "
+        "is distinguishable from the case it was forked from.",
+    )
+    content: str | None = None
+    custom_input: dict[str, Any] | None = None
+    custom_evaluation: dict[str, Any] | None = None
+    allow_orders: bool | None = None
+    learner_tasks: str | None = None
+    resync_structured: bool | None = None
+
+    @field_validator("saved_name")
+    @classmethod
+    def _name_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("saved_name cannot be blank")
+        return value.strip()
+
+
+class AdoptCaseRequest(BaseModel):
+    """Give a pre-authoring-record case its first `case_version`, read from its markdown.
+
+    Cases finalized before `authoring.case_versions` existed have no structured record,
+    which blocks Final Orders and the Oracle: both resolve through the latest version.
+    Re-sync cannot help — it starts from a version there is none of.
+
+    `primary_diagnosis` is required, and required for a safety reason rather than a
+    bookkeeping one. The Oracle's leak audit builds its search terms from this field, and
+    an empty string produces an empty term list, so the audit would pass without checking
+    anything (`blinded_context.audit_leak`). Adopting without it would turn the panel's
+    main safety control into a silent no-op on exactly the cases nobody has reviewed.
+    """
+
+    primary_diagnosis: str = Field(
+        min_length=1,
+        description="The case's actual diagnosis. Withheld from the panel; used to audit "
+        "the blinded context for leaks.",
+    )
+    title: str | None = None
+    description: str | None = None
+    oracle_specialty: str | None = None
+
+    @field_validator("primary_diagnosis")
+    @classmethod
+    def _diagnosis_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError(
+                "primary_diagnosis cannot be blank: the Oracle's leak audit has nothing "
+                "to check without it"
+            )
+        return value.strip()
 
 
 class FinalOrdersUpdateRequest(BaseModel):

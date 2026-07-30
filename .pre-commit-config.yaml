@@ -1,0 +1,39 @@
+# Secret scanning. Local hooks catch a secret before it becomes a commit; the CI scan in
+# .github/workflows/secret-scan.yml is the backstop for anyone who commits with
+# `--no-verify` or has not run `pre-commit install`.
+#
+# One-time setup, per clone:
+#     uvx pre-commit install
+#
+# Deliberately not added as a project dependency. `uvx` runs it from an ephemeral
+# environment, so neither requirements.txt nor the deployed image grows a dev-only tool.
+#
+# Run it over everything, not just staged files:
+#     uvx pre-commit run --all-files
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      # `gitleaks-system`, not the default `gitleaks` hook. The default builds from source
+      # with Go, and pre-commit hardcodes GOTOOLCHAIN=local, so it cannot fetch the
+      # toolchain gitleaks now requires (>= 1.24.11) — it just fails on a Go older than
+      # that. The system hook uses the installed binary instead:
+      #
+      #     brew install gitleaks
+      #
+      # Homebrew currently ships 8.30.1, matching the `rev` above. Note that `rev` pins the
+      # hook *definition*, not the binary, so a later `brew upgrade` moves the scanner
+      # without touching this file. That is tolerable — detection rules only get broader,
+      # and CI pins its own version independently — but it means this file is not the
+      # single source of truth for which scanner ran.
+      #
+      # Scans the staged diff only, which is what keeps it fast enough for a commit hook.
+      # History is CI's job; that workflow checks out with fetch-depth: 0.
+      #
+      # `pass_filenames` is an upstream oversight, not a preference: of the three hooks
+      # gitleaks defines, `gitleaks-system` is the only one that omits it. Without this
+      # override pre-commit appends every changed path to `gitleaks git ...`, which takes
+      # at most one argument, and the hook dies with "accepts at most 1 arg(s)" on any
+      # commit touching more than one file.
+      - id: gitleaks-system
+        pass_filenames: false

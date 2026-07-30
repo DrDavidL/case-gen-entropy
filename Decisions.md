@@ -567,3 +567,59 @@ question that falls out for free if the schema is granular from day one, and is 
 it is not.
 
 **See:** `docs/architecture-target.md`
+
+---
+
+## ADR-019 — Editing a saved case writes a new version. Overwriting is an explicit choice.
+
+**Status:** ACCEPTED (2026-07-30) · BUILT
+
+**Context.** An author loaded a case, added Final Orders, and could not run the Oracle. Two
+defects met in that one attempt.
+
+The first: `PUT /sim-ready/case/{id}` overwrote the simulator row and wrote no `case_version`,
+contradicting ADR-003 since the day versioning shipped. The button said "Update Case in Database"
+and told the truth — it was the semantics that were wrong. Nothing recorded that an edit had
+happened, so learner runs from before and after were pooled with no way to separate them, and the
+structured record kept describing the pre-edit case, which is what ADR-017 then blocked the panel
+over.
+
+The second: every Final Orders and Oracle path resolves through the latest `case_version` for a
+case row, and **102 of 103 existing cases have none** — they were finalized before the authoring
+record existed. For them there was no way in at all. `/resync` could not help: it rebuilds a
+structured record starting from a version there is none of. The failure surfaced as a flat
+statement that the case "needs to be re-saved", which was not an action the UI offered.
+
+**Decision.**
+
+1. **Saving an edited case defaults to a new version** of the same family, with
+   `parent_version_id` lineage. The simulator keeps the case's ID and link, and always serves the
+   latest version. Learner runs and Oracle panels stay pinned to the version they saw.
+2. **When the content changed, it is re-read into the structured record as part of that save.**
+   This is the same operation as `/resync` and costs one model call. Doing it inside the save is
+   what makes an ordinary edit leave the case in a state where the Oracle can run — otherwise
+   ADR-017's parity block is a trap the author falls into after the fact rather than a guard.
+   Skipped when only the learner tasks, simulator fields, or Final Orders changed: those cannot
+   move the structured record, so the call would buy nothing.
+3. **Two other modes exist and are named for what they do.** *New case* forks a new simulator row
+   and a new family, recording lineage across the fork. *Correction* overwrites with no version,
+   and says plainly that it will detach the Oracle until the content is re-read.
+4. **`POST /sim-ready/case/{id}/adopt` gives a pre-authoring-record case its first version**,
+   reconstructed from the markdown the simulator already serves.
+
+**Adoption is per case and author-initiated, not a bulk backfill.** 102 cases would be 102 model
+calls, most of them on rows named `tester`, and every one would produce a reconstructed record
+nobody had read. The author adopting a case is the person who can check what came back.
+
+**Adoption requires the primary diagnosis, for a safety reason rather than a bookkeeping one.**
+`audit_leak` derives its search terms from that field, so an empty one yields an empty term list
+and the audit reports success having checked nothing. Adopting without it would turn the panel's
+main safety control into a silent no-op on exactly the cases nobody has reviewed. The same defect
+was reachable through the existing finalize path, so `preflight` and the runner now **fail closed
+on a missing diagnosis** — blocking, and deliberately not covered by the leak-audit override,
+since overriding a check that never ran means nothing.
+
+**Consequences.** Ordinary editing now costs one model call when the case document changed. The
+diagnostic framework and likelihood ratios cannot be recovered for adopted cases — that analysis
+was generated and discarded for every case finalized before ADR-001 — so those versions carry
+none, and the API says so rather than regenerating numbers and presenting them as the case's own.

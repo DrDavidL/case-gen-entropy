@@ -1,5 +1,17 @@
 # Draft email to Cory and Alex
 
+> **Before sending — this draft asserts things that are not true yet.**
+>
+> The email says both apps are running the new code. As of 2026-07-30 the Final Orders and
+> Oracle work is deployed, but the **case versioning and adoption work from 2026-07-30 is
+> committed nowhere and deployed nowhere**. Either deploy it first or cut the two sections
+> marked `[needs deploy]` below, because both describe buttons that do not exist in the
+> live app yet.
+>
+> Also confirm before sending: `OPENROUTER_API_KEY` is set as a Container Apps secret, and
+> `curl https://casegen-backend.../` returns a `build.git_sha` matching what you deployed.
+> A deploy that silently did not roll is a documented failure mode here (ADR-012).
+
 **Subject:** Final Orders and Oracle panel are live for testing, plus one decision we need from you
 
 ---
@@ -26,6 +38,14 @@ Cory, five of your answers went straight into the build:
   is a different instrument.
 - **The otolaryngologist seat is now an "applicable specialty surgeon or subspecialist"** set per
   case, so a cardiac case gets a cardiac subspecialist rather than an ENT.
+
+And one from your March list rather than the recent round. `[needs deploy]` **Editing a saved case
+no longer overwrites it.** Editing was the item you raised first back then, and it was working, but
+in a way that quietly destroyed information: every save replaced the case in place, so if a case
+was edited after students had run it, there was no record that it had changed and no way to tell
+which version each student saw. Saving now writes a new version by default and keeps the old one,
+with the case's link and ID unchanged. Overwriting is still available, but you have to pick it and
+it says what it costs.
 
 We also split the panel across two model families. On the first live run, three of the emergency
 medicine panelists returned identical ratings with nearly identical wording, which is the failure
@@ -93,6 +113,21 @@ lost by waiting, since no case carries Final Orders yet.
 
 Everything below happens inside the apps, so there is nothing to install.
 
+`[needs deploy]` **One thing to know first, if you plan to use a case you already have.** Final
+Orders and the Oracle both hang off a structured record of the case that we only started storing
+recently, and almost none of the existing cases have one — the analysis behind them was generated
+and thrown away at the time, which is the flaw this whole rebuild exists to correct. So on an older
+case the Final Orders section will tell you it cannot attach anything yet, and offer to read the
+case's own text into a record. That takes a few seconds and asks you for one thing: the case's
+diagnosis. It genuinely needs it. The panel is blinded, and the way we verify the blinding is by
+searching what the panel sees for the diagnosis and its synonyms — with no diagnosis on file, that
+check passes without having checked anything, which is worse than not running it.
+
+Two caveats on those older cases. The likelihood ratio data is gone for good and cannot be
+reconstructed, so those cases will show none. And anything the case document does not spell out
+gets inferred when we read it back, so give the case a skim afterwards. **A freshly generated case
+skips all of this**, which is the smoother path if you have no particular case in mind.
+
 ### Generating a case (Cory, and Alex if you want to see the item wording in context)
 
 1. **Generate a case** as you normally would. Nothing about that step changed.
@@ -117,10 +152,13 @@ Everything below happens inside the apps, so there is nothing to install.
    agreement, and a plain-language flag telling you whether the item will separate learners.
    - The flags are the point of the whole exercise. **"Low discrimination" means the item is not
      worth using.** Seeing that before students run the case is exactly what we wanted.
-8. **Try editing the case content and re-running.** The panel will refuse, on the grounds that it
-   would otherwise rate a version of the case the student will not see. There is a button to
-   re-read the edited content and rebuild the record, after which the panel runs again. We would
-   like to know whether that refusal reads as helpful or merely obstructive.
+8. `[needs deploy]` **Edit the case content, save it again, and re-run the panel.** You will be
+   asked how to record the save; take the default, which is a new version. The panel then runs on
+   what you just wrote. Behind that is a guard worth knowing about: the panel refuses to rate a
+   case that differs from the one the student will see, and the default save keeps the two in step
+   so you never meet the refusal. You will meet it if you pick **Overwrite** instead, and we would
+   like to know whether the explanation you get at that point reads as helpful or merely
+   obstructive.
 
 You can also expand **"What the panel sees"** at any point. It shows the exact blinded record the
 raters get, which excludes the diagnosis, your reasoning notes, and the teaching points. It is the

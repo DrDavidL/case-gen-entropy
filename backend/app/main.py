@@ -27,6 +27,7 @@ from backend.models.database import (
     sim_ready_engine,
 )
 from backend.models.editing_schemas import (
+    AdoptCaseRequest,
     CaseEditRequest,
     CasePreviewResponse,
     CaseSaveRequest,
@@ -36,6 +37,7 @@ from backend.models.editing_schemas import (
     RegenerateLRRequest,
     RegenerateLRResponse,
     SessionData,
+    SimReadyCaseCopyRequest,
     SimReadyCasePreviewResponse,
     SimReadyCaseUpdateRequest,
 )
@@ -54,7 +56,11 @@ from backend.models.structured_outputs import (
 )
 from backend.utils import final_orders_store, oracle_service, oracle_stems, panel_roster
 from backend.utils.auth import verify_credentials
-from backend.utils.authoring_store import load_analysis, persist_case_version
+from backend.utils.authoring_store import (
+    load_analysis,
+    persist_case_version,
+    snapshot_version,
+)
 from backend.utils.build_info import get_build_info
 from backend.utils.llm_service import LLMService
 from backend.utils.panel_runner import describe_settings
@@ -1232,13 +1238,92 @@ async def get_sim_ready_case(case_id: int):
         sim_db.close()
 
 
+def _apply_case_fields(case: CaseDetailSimReady, update) -> None:
+    """Copy the set fields of an update/copy request onto a simulator case row."""
+    for field in (
+        "saved_name",
+        "content",
+        "custom_input",
+        "custom_evaluation",
+        "allow_orders",
+        "learner_tasks",
+    ):
+        value = getattr(update, field, None)
+        if value is not None:
+            setattr(case, field, value)
+
+
+def _sim_case_payload(case: CaseDetailSimReady) -> dict:
+    return {
+        "case_id": case.id,
+        "saved_name": case.saved_name,
+        "content": case.content,
+        "custom_input": case.custom_input,
+        "custom_evaluation": case.custom_evaluation,
+        "allow_orders": case.allow_orders,
+        "learner_tasks": case.learner_tasks,
+    }
+
+
+async def _structured_for_new_version(
+    snapshot: dict, content: str, resync_requested: bool | None
+) -> tuple[dict, bool, bool]:
+    """The structured record a successor version should carry, and whether it is attached.
+
+    Returns `(content_structured, render_detached, resynced)`.
+
+    The default is to re-read the markdown only when the markdown actually changed. An
+    author who edited the learner tasks or the Final Orders and nothing else should not
+    pay for a model call, and an author who edited the case document must, because
+    otherwise the structured record describes the previous case and the Oracle's parity
+    check blocks the panel (ADR-017).
+
+    A failed extraction does not fail the save. The case content is already committed at
+    this point; the version is written with the parent's structured record and marked
+    detached, which is a true statement about that version and leaves the author with the
+    'Re-read case content' path.
+    """
+    content_changed = oracle_service.normalize_content(
+        content
+    ) != oracle_service.normalize_content(snapshot["content_rendered"])
+
+    should_resync = content_changed if resync_requested is None else resync_requested
+    if not should_resync or not content.strip():
+        # Content that changed without a re-read is by definition no longer a projection
+        # of the structured record. Content that did not change keeps the parent's state.
+        detached = True if content_changed else snapshot["render_detached"]
+        return snapshot["content_structured"], detached, False
+
+    try:
+        structured = await llm_service.extract_structured_from_content_async(
+            content, snapshot["primary_diagnosis"]
+        )
+    except Exception:
+        logger.exception(
+            "Could not re-read content into the structured record for version %s; "
+            "writing the successor with the parent's record, marked detached",
+            snapshot["version_id"],
+        )
+        return snapshot["content_structured"], True, False
+
+    return structured.model_dump(), False, True
+
+
 @app.put("/sim-ready/case/{case_id}")
 async def update_sim_ready_case(
     case_id: int,
     update: SimReadyCaseUpdateRequest,
     credentials: str = Depends(verify_credentials),
 ):
-    """Update an existing sim-ready case in-place."""
+    """Save an edited case, as a new version by default.
+
+    Until 2026-07-30 this only ever overwrote the row, which contradicted ADR-003 and had
+    two consequences an author could not see: an edit left no record that it happened, so
+    learner runs from before and after it were pooled; and the structured record kept
+    describing the pre-edit case, which blocked the Oracle with no obvious way forward.
+
+    `save_mode="in_place"` keeps the old behaviour for corrections, and says so.
+    """
     sim_db = next(get_sim_ready_db())
     try:
         case = (
@@ -1249,31 +1334,273 @@ async def update_sim_ready_case(
         if not case:
             raise HTTPException(status_code=404, detail="Sim-ready case not found")
 
-        if update.saved_name is not None:
-            case.saved_name = update.saved_name
-        if update.content is not None:
-            case.content = update.content
-        if update.custom_input is not None:
-            case.custom_input = update.custom_input
-        if update.custom_evaluation is not None:
-            case.custom_evaluation = update.custom_evaluation
-        if update.allow_orders is not None:
-            case.allow_orders = update.allow_orders
-        if update.learner_tasks is not None:
-            case.learner_tasks = update.learner_tasks
-
+        _apply_case_fields(case, update)
         sim_db.commit()
         sim_db.refresh(case)
+        payload = _sim_case_payload(case)
+        live_content = case.content or ""
 
+        version = (
+            final_orders_store.latest_version_for_case_detail(sim_db, case_id)
+            if AUTHORING_ENABLED
+            else None
+        )
+        if version is None:
+            # No authoring record to version. The content save stands; adoption is a
+            # separate, explicit step because it needs the primary diagnosis.
+            return {
+                **payload,
+                "save_mode": "in_place",
+                "case_version_id": None,
+                "note": (
+                    "Saved. This case has no authoring record, so no version was "
+                    "written and it cannot carry Final Orders or an Oracle panel. "
+                    "Adopt it first."
+                    if AUTHORING_ENABLED
+                    else "Saved. Authoring persistence is unavailable on this backend."
+                ),
+            }
+
+        if update.save_mode == "in_place":
+            drifted = oracle_service.normalize_content(
+                live_content
+            ) != oracle_service.normalize_content(version.content_rendered)
+            logger.info(
+                "Case %d updated in place by %s (version %d unchanged, drift=%s)",
+                case_id,
+                credentials,
+                version.id,
+                drifted,
+            )
+            return {
+                **payload,
+                "save_mode": "in_place",
+                "case_version_id": version.id,
+                "version": version.version,
+                "parity_broken": drifted,
+                "note": (
+                    "Saved in place. The case content now differs from version "
+                    f"{version.version}'s record, so the Oracle is blocked until the "
+                    "content is re-read."
+                    if drifted
+                    else "Saved in place. No new version was written."
+                ),
+            }
+
+        snapshot = snapshot_version(version)
+        previous_orders = (
+            [
+                final_orders_store.serialize_final_order(o)
+                for o in final_orders_store.load_final_orders(sim_db, version.id)
+            ]
+            if FINAL_ORDERS_ENABLED
+            else []
+        )
+    finally:
+        sim_db.close()
+
+    structured, detached, resynced = await _structured_for_new_version(
+        snapshot, live_content, update.resync_structured
+    )
+
+    sim_db = next(get_sim_ready_db())
+    try:
+        new_version = persist_case_version(
+            sim_db,
+            title=payload["saved_name"] or snapshot["title"],
+            description=snapshot["description"],
+            primary_diagnosis=snapshot["primary_diagnosis"],
+            case_details=structured,
+            diagnostic_framework=snapshot["diagnostic_framework"],
+            feature_likelihood_ratios=snapshot["feature_likelihood_ratios"],
+            output_format="sim_ready",
+            rendered_content=live_content,
+            render_detached=detached,
+            case_detail_id=case_id,
+            family_id=snapshot["family_id"],
+            parent_version_id=snapshot["version_id"],
+            oracle_specialty=snapshot["oracle_specialty"],
+        )
+        carried = 0
+        if previous_orders:
+            # Carried so the orders survive even if the caller never follows up with a
+            # Final Orders write. A subsequent PUT replaces them on this same version.
+            carried = len(
+                final_orders_store.replace_final_orders(
+                    sim_db, new_version.id, previous_orders
+                )
+            )
+
+        logger.info(
+            "Case %d saved as version %d (v%d) by %s: parent=%d, resynced=%s, "
+            "detached=%s, %d Final Order(s) carried",
+            case_id,
+            new_version.id,
+            new_version.version,
+            credentials,
+            snapshot["version_id"],
+            resynced,
+            detached,
+            carried,
+        )
         return {
-            "case_id": case.id,
-            "saved_name": case.saved_name,
-            "content": case.content,
-            "custom_input": case.custom_input,
-            "custom_evaluation": case.custom_evaluation,
-            "allow_orders": case.allow_orders,
-            "learner_tasks": case.learner_tasks,
+            **payload,
+            "save_mode": "new_version",
+            "case_version_id": new_version.id,
+            "version": new_version.version,
+            "parent_version_id": snapshot["version_id"],
+            "structured_resynced": resynced,
+            "render_detached": detached,
+            "final_orders_carried_forward": carried,
+            "parity_broken": detached,
         }
+    except Exception as e:
+        sim_db.rollback()
+        logger.exception(
+            "Case %d content saved but the new version could not be written", case_id
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"The case content was saved, but the new version was not: {e}",
+        ) from e
+    finally:
+        sim_db.close()
+
+
+@app.post("/sim-ready/case/{case_id}/copy")
+async def copy_sim_ready_case(
+    case_id: int,
+    request: SimReadyCaseCopyRequest,
+    credentials: str = Depends(verify_credentials),
+):
+    """Fork an edited case into a new simulator row and a new case family.
+
+    Distinct from saving a new version: a version is the same case concept edited, and
+    learner performance across its versions is comparable in a way performance across a
+    fork is not. Lineage is still recorded via `parent_version_id`, across families.
+    """
+    sim_db = next(get_sim_ready_db())
+    try:
+        source = (
+            sim_db.query(CaseDetailSimReady)
+            .filter(CaseDetailSimReady.id == case_id)
+            .first()
+        )
+        if not source:
+            raise HTTPException(status_code=404, detail="Sim-ready case not found")
+
+        new_case = CaseDetailSimReady(
+            saved_name=request.saved_name,
+            content=source.content,
+            custom_input=source.custom_input,
+            custom_evaluation=source.custom_evaluation,
+            allow_orders=source.allow_orders,
+            learner_tasks=source.learner_tasks,
+        )
+        # The editor's unsaved state wins over the source row: the author is forking what
+        # is on their screen, not what is in the database.
+        _apply_case_fields(new_case, request)
+        new_case.saved_name = request.saved_name
+
+        sim_db.add(new_case)
+        sim_db.commit()
+        sim_db.refresh(new_case)
+        payload = _sim_case_payload(new_case)
+        new_case_id = new_case.id
+        live_content = new_case.content or ""
+
+        version = (
+            final_orders_store.latest_version_for_case_detail(sim_db, case_id)
+            if AUTHORING_ENABLED
+            else None
+        )
+        if version is None:
+            return {
+                **payload,
+                "case_version_id": None,
+                "note": (
+                    "Copied. The source case has no authoring record, so the copy has "
+                    "none either and cannot carry Final Orders or an Oracle panel."
+                ),
+            }
+
+        snapshot = snapshot_version(version)
+        previous_orders = (
+            [
+                final_orders_store.serialize_final_order(o)
+                for o in final_orders_store.load_final_orders(sim_db, version.id)
+            ]
+            if FINAL_ORDERS_ENABLED
+            else []
+        )
+    finally:
+        sim_db.close()
+
+    structured, detached, resynced = await _structured_for_new_version(
+        snapshot, live_content, request.resync_structured
+    )
+
+    sim_db = next(get_sim_ready_db())
+    try:
+        new_version = persist_case_version(
+            sim_db,
+            title=request.saved_name,
+            description=snapshot["description"],
+            primary_diagnosis=snapshot["primary_diagnosis"],
+            case_details=structured,
+            diagnostic_framework=snapshot["diagnostic_framework"],
+            feature_likelihood_ratios=snapshot["feature_likelihood_ratios"],
+            output_format="sim_ready",
+            rendered_content=live_content,
+            render_detached=detached,
+            case_detail_id=new_case_id,
+            # No family_id: a fork is a new case concept, so it starts its own family at
+            # v1. `parent_version_id` is what records where it came from.
+            family_id=None,
+            parent_version_id=snapshot["version_id"],
+            oracle_specialty=snapshot["oracle_specialty"],
+        )
+        carried = 0
+        if previous_orders:
+            carried = len(
+                final_orders_store.replace_final_orders(
+                    sim_db, new_version.id, previous_orders
+                )
+            )
+
+        logger.info(
+            "Case %d copied to %d as family %d v1 by %s (parent version %d), "
+            "%d Final Order(s) carried",
+            case_id,
+            new_case_id,
+            new_version.case_family_id,
+            credentials,
+            snapshot["version_id"],
+            carried,
+        )
+        return {
+            **payload,
+            "copied_from_case_id": case_id,
+            "case_version_id": new_version.id,
+            "case_family_id": new_version.case_family_id,
+            "version": new_version.version,
+            "parent_version_id": snapshot["version_id"],
+            "structured_resynced": resynced,
+            "render_detached": detached,
+            "final_orders_carried_forward": carried,
+        }
+    except Exception as e:
+        sim_db.rollback()
+        logger.exception(
+            "Case %d copied to %d but the authoring record was not written",
+            case_id,
+            new_case_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"The copy was created (ID {new_case_id}), but its authoring record "
+            f"was not: {e}",
+        ) from e
     finally:
         sim_db.close()
 
@@ -1301,8 +1628,9 @@ def _resolve_case_version(sim_db: Session, case_id: int):
         raise HTTPException(
             status_code=404,
             detail="No authoring record for this case. Cases finalized before the "
-            "authoring record existed cannot carry Final Orders until they are "
-            "re-saved.",
+            "authoring record existed need to be adopted first: POST "
+            f"/sim-ready/case/{case_id}/adopt with the case's primary diagnosis "
+            "rebuilds the structured record from its markdown.",
         )
     return version
 
@@ -1540,6 +1868,120 @@ async def update_case_final_orders(
             "oracle_specialty": version.oracle_specialty,
             "final_orders": [final_orders_store.serialize_final_order(r) for r in rows],
             "oracle_started": oracle_started,
+        }
+    finally:
+        sim_db.close()
+
+
+@app.post("/sim-ready/case/{case_id}/adopt")
+async def adopt_case_into_authoring(
+    case_id: int,
+    request: AdoptCaseRequest,
+    username: str = Depends(verify_credentials),
+):
+    """Give a pre-authoring-record case its first version, read from its markdown.
+
+    Every Final Orders and Oracle path resolves through the latest `case_version` for a
+    simulator case row. Cases finalized before that table existed have none, so they were
+    a dead end: Final Orders could not attach, the Oracle 404'd, and `/resync` — the one
+    path that rebuilds a structured record from markdown — could not help either, because
+    it starts from a version there is none of.
+
+    This is the way in. It reconstructs the structured record from the document the
+    simulator already serves and writes it as v1 of a new family.
+
+    Two things it cannot recover, both reported rather than papered over: the diagnostic
+    framework and the likelihood ratios were never stored for these cases, so the version
+    starts with none; and any clinical detail the markdown does not state is reconstructed
+    by the model, so the case needs a read-through afterwards.
+    """
+    if not AUTHORING_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="Authoring persistence is unavailable: the shared database is missing "
+            "the authoring schema. Run 'alembic upgrade head' in the direct-sim repo.",
+        )
+
+    sim_db = next(get_sim_ready_db())
+    try:
+        detail = (
+            sim_db.query(CaseDetailSimReady)
+            .filter(CaseDetailSimReady.id == case_id)
+            .first()
+        )
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Sim-ready case not found")
+
+        existing = final_orders_store.latest_version_for_case_detail(sim_db, case_id)
+        if existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"This case already has an authoring record (version "
+                f"{existing.version}). Use 'Re-read case content' to rebuild its "
+                "structured record from the current document.",
+            )
+
+        content = detail.content or ""
+        if not content.strip():
+            raise HTTPException(
+                status_code=400, detail="This case has no content to read."
+            )
+        title = request.title or detail.saved_name or f"Case {case_id}"
+    finally:
+        sim_db.close()
+
+    try:
+        structured = await llm_service.extract_structured_from_content_async(
+            content, request.primary_diagnosis
+        )
+    except Exception as e:
+        logger.exception("Adoption failed for case %d", case_id)
+        raise HTTPException(
+            status_code=500, detail=f"Could not read the case content: {e}"
+        ) from e
+
+    sim_db = next(get_sim_ready_db())
+    try:
+        version = persist_case_version(
+            sim_db,
+            title=title,
+            description=request.description or "",
+            primary_diagnosis=request.primary_diagnosis,
+            case_details=structured.model_dump(),
+            # Empty, and empty is the honest value: this analysis was generated and
+            # discarded for every case finalized before ADR-001, so there is nothing to
+            # recover. Regenerating it here would invent numbers and present them as the
+            # case's own.
+            diagnostic_framework=[],
+            feature_likelihood_ratios=[],
+            output_format="sim_ready",
+            rendered_content=content,
+            # The structured record was just built from this exact document, so they are
+            # in parity and the Oracle can run.
+            render_detached=False,
+            case_detail_id=case_id,
+            oracle_specialty=request.oracle_specialty,
+        )
+        logger.info(
+            "Case %d adopted by %s as family %d v%d (case_version=%d)",
+            case_id,
+            username,
+            version.case_family_id,
+            version.version,
+            version.id,
+        )
+        return {
+            "case_id": case_id,
+            "case_version_id": version.id,
+            "case_family_id": version.case_family_id,
+            "version": version.version,
+            "analysis_available": False,
+            "note": (
+                "The structured record was rebuilt from this case's markdown. The "
+                "diagnostic framework and likelihood ratios were never stored for cases "
+                "of this vintage, so this version has none. Any detail the document does "
+                "not state was reconstructed — review the case before running the panel."
+            ),
         }
     finally:
         sim_db.close()

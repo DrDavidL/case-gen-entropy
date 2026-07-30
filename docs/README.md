@@ -16,6 +16,10 @@ declares what it covers and what it does not, so you can stop reading early.
 > `../Decisions.md` describes **where it is going**, and several accepted decisions supersede what
 > `CLAUDE.md` documents. Where they conflict, `Decisions.md` wins. Building from `CLAUDE.md`
 > alone will reproduce the architecture we are moving away from.
+>
+> **Read `../ToDos.md` "Start here" before running anything.** As of 2026-07-30 both repos carry
+> uncommitted work, and the local environment changed in a way that silently breaks LLM calls in
+> any terminal opened before the fix. Both are described there.
 
 ## Deep reference — load on demand
 

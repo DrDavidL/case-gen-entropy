@@ -41,7 +41,7 @@ def _all_suppression_terms(orders: list[Any]) -> list[str]:
     return terms
 
 
-def _normalize_content(text: str | None) -> str:
+def normalize_content(text: str | None) -> str:
     """Reduce markdown to its words, so only a real content edit counts as a change.
 
     The editor splits the document on the Door Chart delimiter and rejoins the halves
@@ -109,8 +109,8 @@ def check_content_parity(db: Session, version: Any) -> dict[str, Any]:
     # any author touching a word. A byte comparison would block the panel on a save that
     # changed nothing, and a check that fires on non-changes is one people learn to
     # route around.
-    stored = _normalize_content(version.content_rendered)
-    live = _normalize_content(detail.content)
+    stored = normalize_content(version.content_rendered)
+    live = normalize_content(detail.content)
     if stored != live:
         return {
             "in_parity": False,
@@ -187,8 +187,19 @@ def preflight(
 
     # Parity is checked first. A leak in a context that describes the wrong case is the
     # less interesting of the two problems.
+    message = parity["message"]
     if not parity["in_parity"]:
         ready, reason = False, parity["reason"]
+    elif not (version.primary_diagnosis or "").strip():
+        # Fail closed. `audit_leak` derives its search terms from the diagnosis, so an
+        # empty one produces an empty term list and the audit passes having checked
+        # nothing — a green tick that means the opposite of what it looks like.
+        ready, reason = False, "no_primary_diagnosis"
+        message = (
+            "No primary diagnosis is recorded on this version, so the leak audit has no "
+            "terms to search for and cannot vouch for the blinded context. Record the "
+            "diagnosis before running the panel."
+        )
     elif not audit.passed:
         ready, reason = False, "diagnosis_leak"
     else:
@@ -197,7 +208,7 @@ def preflight(
     return {
         "ready": ready,
         "reason": reason,
-        "message": parity["message"],
+        "message": message,
         "content_parity": parity,
         "case_version_id": case_version_id,
         "primary_diagnosis_withheld": bool(version.primary_diagnosis),
@@ -267,6 +278,25 @@ async def run_oracle_for_case_version(
                 "status": "blocked",
                 "reason": parity["reason"],
                 "message": parity["message"],
+            }
+
+        # Also not overridable, and for the same reason as parity: with no diagnosis
+        # recorded, `audit_leak` has no terms to search for and reports success without
+        # checking anything. Overriding a check that never ran is meaningless.
+        if not (version.primary_diagnosis or "").strip():
+            logger.error(
+                "Oracle blocked for case_version=%d: no primary diagnosis recorded, so "
+                "the leak audit cannot run",
+                case_version_id,
+            )
+            return {
+                **summary,
+                "status": "blocked",
+                "reason": "no_primary_diagnosis",
+                "message": (
+                    "No primary diagnosis is recorded on this version, so the blinded "
+                    "context cannot be audited for leaks."
+                ),
             }
 
         context = build_oracle_context(

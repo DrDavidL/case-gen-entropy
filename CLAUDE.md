@@ -140,6 +140,26 @@ Saves to 3 tables: `cases`, `diagnostic_frameworks`, `feature_likelihood_ratios`
 | `PANEL_MAX_RETRIES` | No | `3` | Per-panelist retry attempts |
 | `PANEL_RETRY_BASE_DELAY` | No | `2.0` | Base delay between panelist retries (seconds) |
 
+## Secret scanning
+
+Per clone, once:
+
+```bash
+brew install gitleaks     # the hook uses the system binary, see below
+uvx pre-commit install
+```
+
+`.pre-commit-config.yaml` pins `gitleaks-system`, not the default `gitleaks` hook: the default
+builds from source and pre-commit hardcodes `GOTOOLCHAIN=local`, so it cannot fetch the Go
+toolchain gitleaks now requires. `.github/workflows/secret-scan.yml` is the backstop that a
+`--no-verify` cannot skip, and it checks out with `fetch-depth: 0` so history is scanned too.
+
+**The two repos use different hook mechanisms, deliberately.** `direct-sim` already had
+`.githooks/pre-commit` covering ruff, gitleaks, large files, `uv.lock`, and `pip-audit`; it just
+needed `git config core.hooksPath .githooks` to be active. This repo had no hook to preserve, so it
+uses the pre-commit framework. Both now fail the commit when the gitleaks binary is missing rather
+than skipping the scan, so `brew install gitleaks` is a hard prerequisite in either repo.
+
 ## Commands
 
 ```bash
@@ -209,7 +229,9 @@ prefixed `casegen-`.
 | POST | `/generate-case` | * | Generate + save (legacy, beta only) |
 | GET | `/sim-ready/cases` | No | List all sim-ready cases |
 | GET | `/sim-ready/case/{id}` | No | Get a single sim-ready case |
-| PUT | `/sim-ready/case/{id}` | * | Update an existing sim-ready case in-place |
+| PUT | `/sim-ready/case/{id}` | * | Save an edited case. `save_mode` defaults to `new_version` |
+| POST | `/sim-ready/case/{id}/copy` | * | Fork into a new simulator row + new family at v1 |
+| POST | `/sim-ready/case/{id}/adopt` | * | First `case_version` for a pre-authoring-record case |
 | GET | `/cases` | No | List all beta cases |
 | GET | `/case/{id}/output-files` | No | Export 3 JSON files (beta) |
 | GET | `/case/{id}/simulator-exports` | No | Export metadata (beta) |
@@ -257,6 +279,14 @@ Four things that are easy to get wrong:
 - **The rating stem is the measurement instrument.** Changing it invalidates every distribution
   generated under the old wording, so both versions are held in `backend/utils/oracle_stems.py` and
   stamped onto each run. Do not inline stem text anywhere else — render it from the registry.
+- **Nearly every existing case has no `case_version`** (102 of 103 as of 2026-07-30), and every
+  Final Orders / Oracle path resolves through one. Those cases are reached via
+  `POST /sim-ready/case/{id}/adopt`, which rebuilds the structured record from the markdown the
+  simulator already serves. Per case and author-initiated, not a bulk backfill — see ADR-019.
+- **A blank `primary_diagnosis` blocks the panel and is not overridable.** `audit_leak` derives
+  its search terms from that field, so an empty one passes having checked nothing. The leak
+  override exists for a true hit with a benign explanation; it does not cover an audit that never
+  ran.
 
 ## Common Pitfalls
 

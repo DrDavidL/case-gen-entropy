@@ -97,9 +97,20 @@ SIM_EDIT_KEYS = [
     "sim_image_links",
     "sim_final_orders",
     "sim_oracle_specialty",
+    "sim_save_mode",
+    "sim_copy_name",
     "final_order_candidates",
     "final_orders_notice",
     "oracle_result",
+    "save_notices",
+    # Widget keys, not state keys, and they have to be here too. For a keyed widget
+    # Streamlit uses the stored value and ignores `value=`, so resetting only the state
+    # key behind it changes nothing on screen: the previous case's specialty stayed in
+    # the box, was read back into sim_oracle_specialty on the next run, and was saved
+    # onto the case just loaded — driving the wrong subspecialist seat on its Oracle
+    # roster. Same defect as the image-link leak, one layer down.
+    "edit_oracle_specialty",
+    "edit_copy_name",
 ]
 
 
@@ -389,6 +400,47 @@ def _histogram_bars(aggregate):
     return "\n".join(lines)
 
 
+def _adopt_case(case_id, diagnosis_key, specialty_key=None):
+    """Give a pre-authoring-record case its first version, read from its markdown."""
+    diagnosis = (st.session_state.get(diagnosis_key) or "").strip()
+    if not diagnosis:
+        st.session_state.oracle_result = (
+            "error",
+            "Enter the case's primary diagnosis first. The Oracle's leak audit searches "
+            "the blinded context for it and its synonyms, and with nothing to search for "
+            "it would pass without checking anything.",
+        )
+        return
+    payload = {"primary_diagnosis": diagnosis}
+    specialty = (
+        (st.session_state.get(specialty_key) or "").strip() if specialty_key else ""
+    )
+    if specialty:
+        payload["oracle_specialty"] = specialty
+    try:
+        r = requests.post(
+            f"{BACKEND_URL}/sim-ready/case/{case_id}/adopt",
+            json=payload,
+            headers=get_auth_header(),
+            timeout=300,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            st.session_state.oracle_result = (
+                "success",
+                f"Authoring record created (family {d.get('case_family_id')}, version "
+                f"{d.get('version')}). You can add Final Orders and run the Oracle now. "
+                f"{d.get('note', '')}",
+            )
+        else:
+            st.session_state.oracle_result = (
+                "error",
+                f"Could not create the authoring record: {r.text[:300]}",
+            )
+    except requests.exceptions.RequestException as e:
+        st.session_state.oracle_result = ("error", f"Connection error: {e}")
+
+
 def _resync_case(case_id):
     """Rebuild the structured record from the edited markdown so the Oracle can run."""
     try:
@@ -450,9 +502,39 @@ def _render_oracle_section(case_id, key_prefix="view"):
         return
     if r.status_code == 404:
         st.info(
-            "This case has no authoring record, so it cannot carry Final Orders or an "
-            "Oracle panel. Cases finalized before the authoring record existed need to be "
-            "re-saved."
+            "This case predates the authoring record, so it has no structured record "
+            "behind it — which is what Final Orders attach to and what the Oracle reads. "
+            "Reading its content into one fixes that. It costs one model call and does "
+            "not change what the simulator serves."
+        )
+        st.caption(
+            "Two things to know first. The diagnostic framework and likelihood ratios "
+            "were never stored for cases of this vintage, so this record starts without "
+            "them. And any clinical detail the document does not state is reconstructed "
+            "by the model, so read the case through afterwards."
+        )
+        st.text_input(
+            "Primary diagnosis for this case",
+            key=f"{key_prefix}_adopt_dx_{case_id}",
+            placeholder="posterior circulation stroke",
+            help="Withheld from the panel. The leak audit searches the blinded context "
+            "for this term and its synonyms — without it the audit has nothing to check "
+            "and would pass vacuously, which is why it is required here.",
+        )
+        st.text_input(
+            "Applicable specialty for the Oracle panel (optional)",
+            key=f"{key_prefix}_adopt_spec_{case_id}",
+            placeholder="otolaryngologist",
+        )
+        st.button(
+            "Read this case's content into an authoring record",
+            key=f"{key_prefix}_adopt_{case_id}",
+            on_click=_adopt_case,
+            args=(
+                case_id,
+                f"{key_prefix}_adopt_dx_{case_id}",
+                f"{key_prefix}_adopt_spec_{case_id}",
+            ),
         )
         return
     if r.status_code != 200:
@@ -818,7 +900,10 @@ with tab2:
         st.header("Edit Case Content")
         if st.session_state.get("editing_existing_case_id"):
             st.info(
-                f"Editing existing case **ID {st.session_state.editing_existing_case_id}**. Make changes and click **Update Case in Database**."
+                f"Editing existing case **ID {st.session_state.editing_existing_case_id}**. "
+                "Make your changes, then choose how the save is recorded at the bottom of "
+                "this tab — a new version by default, so the edit is on the record and "
+                "the case's history stays intact."
             )
         else:
             st.info(
@@ -1351,6 +1436,58 @@ with tab2:
 
         # Save buttons
         st.write("---")
+
+        # How an edit to a saved case is recorded. Explicit because the old behaviour —
+        # always overwrite — bypassed versioning (ADR-003) and gave no sign it had: the
+        # edit left no record, and the Oracle silently started rating the pre-edit case.
+        save_mode = "new_version"
+        if is_loaded_from_db:
+            st.markdown("**How should this save be recorded?**")
+            save_mode = st.radio(
+                "Save mode",
+                options=["new_version", "new_case", "in_place"],
+                format_func=lambda m: {
+                    "new_version": "New version of this case (recommended)",
+                    "new_case": "New case — a separate case, forked from this one",
+                    "in_place": "Correction — overwrite, record no version",
+                }[m],
+                key="sim_save_mode",
+                label_visibility="collapsed",
+            )
+            if save_mode == "new_version":
+                st.caption(
+                    "The simulator keeps this case's ID and link, and the edit is "
+                    "recorded as a new version with lineage back to the current one. "
+                    "Learner runs and Oracle panels stay pinned to the version they "
+                    "actually saw. If you changed the case content, it is re-read into "
+                    "the structured record so the Oracle rates what the learner sees — "
+                    "one model call."
+                )
+            elif save_mode == "new_case":
+                st.caption(
+                    "Creates a separate case with its own ID and its own version "
+                    "history, leaving this one untouched. For a genuine variant, not for "
+                    "an edit: performance across versions of one case is comparable, "
+                    "across a fork it is not."
+                )
+                # Widget keyed separately from the state key it feeds, matching
+                # sim_oracle_specialty above. Seeding a widget's own key with `value=`
+                # and then clearing that key after a save is two ways Streamlit refuses
+                # to let you touch a live widget's state.
+                st.session_state.sim_copy_name = st.text_input(
+                    "Name for the new case",
+                    value=st.session_state.get("sim_copy_name")
+                    or f"{case.get('saved_name', 'Case')} (copy)",
+                    key="edit_copy_name",
+                )
+            else:
+                st.caption(
+                    "Overwrites the saved case with no version recorded. For typos and "
+                    "formatting. If you changed the case content, the structured record "
+                    "is left behind and the Oracle will refuse to run until the content "
+                    "is re-read."
+                )
+
         col1, col2, col3 = st.columns(3)
 
         with col1:
@@ -1363,14 +1500,24 @@ with tab2:
 
         with col3:
             save_label = (
-                "Update Case in Database"
+                {
+                    "new_version": "Save as New Version",
+                    "new_case": "Save as New Case",
+                    "in_place": "Overwrite Case",
+                }[save_mode]
                 if is_loaded_from_db
                 else "Finalize & Save to Database"
             )
             if st.button(save_label, type="primary"):
+                # Anything drawn here is lost: this block ends in st.rerun(), which
+                # re-executes the script from the top. Outcomes are stashed and rendered
+                # by the confirmation block instead.
+                save_notices = []
                 try:
                     if is_loaded_from_db:
-                        # UPDATE path: PUT to /sim-ready/case/{id}
+                        # UPDATE path: PUT /sim-ready/case/{id}, or POST .../copy for a
+                        # fork. Both write a new case_version; only the fork writes a new
+                        # simulator row.
                         existing_id = st.session_state.editing_existing_case_id
                         update_payload = {
                             "saved_name": case.get("case_details", {}).get(
@@ -1388,19 +1535,74 @@ with tab2:
                                 "sim_learner_tasks", ""
                             ),
                         }
-                        save_response = requests.put(
-                            f"{BACKEND_URL}/sim-ready/case/{existing_id}",
-                            json=update_payload,
-                            headers=get_auth_header(),
-                        )
+                        if save_mode == "new_case":
+                            update_payload["saved_name"] = (
+                                st.session_state.get("sim_copy_name") or ""
+                            ).strip()
+                            save_response = requests.post(
+                                f"{BACKEND_URL}/sim-ready/case/{existing_id}/copy",
+                                json=update_payload,
+                                headers=get_auth_header(),
+                                timeout=300,
+                            )
+                        else:
+                            update_payload["save_mode"] = save_mode
+                            save_response = requests.put(
+                                f"{BACKEND_URL}/sim-ready/case/{existing_id}",
+                                json=update_payload,
+                                headers=get_auth_header(),
+                                timeout=300,
+                            )
 
                         # Final Orders live on the authoring record, not on case_details,
                         # so they are a second call. Done unconditionally: an empty list
                         # is the author saying "this case has no Final Orders", and
-                        # skipping the call would leave deleted orders attached.
+                        # skipping the call would leave deleted orders attached. It has to
+                        # follow the save, because the version it writes to is the one the
+                        # save just created.
                         if is_sim_ready and save_response.status_code == 200:
+                            saved = save_response.json()
+                            if saved.get("note"):
+                                save_notices.append(("info", saved["note"]))
+                            if saved.get("version") and save_mode != "in_place":
+                                save_notices.append(
+                                    (
+                                        "success",
+                                        f"Recorded as version {saved['version']}"
+                                        + (
+                                            f", forked from version "
+                                            f"{saved.get('parent_version_id')}"
+                                            if save_mode == "new_case"
+                                            else ""
+                                        )
+                                        + ". "
+                                        + f"{saved.get('final_orders_carried_forward', 0)} "
+                                        "Final Order(s) carried forward.",
+                                    )
+                                )
+                            if saved.get("structured_resynced"):
+                                save_notices.append(
+                                    (
+                                        "info",
+                                        "The edited content was re-read into the "
+                                        "structured record, so the Oracle rates the case "
+                                        "you just saved.",
+                                    )
+                                )
+                            elif saved.get("parity_broken"):
+                                save_notices.append(
+                                    (
+                                        "warning",
+                                        "The case content changed but the structured "
+                                        "record was not re-read, so the Oracle will "
+                                        "refuse to run until it is. Use **Re-read case "
+                                        "content** in the Oracle section.",
+                                    )
+                                )
+                            # A fork's orders belong to the new case, not the source.
+                            fo_target = saved.get("case_id", existing_id)
                             fo_response = requests.put(
-                                f"{BACKEND_URL}/sim-ready/case/{existing_id}/final-orders",
+                                f"{BACKEND_URL}/sim-ready/case/{fo_target}/final-orders",
                                 json={
                                     "final_orders": _final_orders_payload(),
                                     "oracle_specialty": st.session_state.get(
@@ -1414,16 +1616,23 @@ with tab2:
                                 headers=get_auth_header(),
                             )
                             if fo_response.status_code == 404:
-                                st.warning(
-                                    "Case content saved, but this case has no authoring "
-                                    "record yet, so Final Orders could not be attached. "
-                                    "Cases finalized before the authoring record existed "
-                                    "need to be re-saved as a new case first."
+                                save_notices.append(
+                                    (
+                                        "warning",
+                                        "Case content saved, but this case has no "
+                                        "authoring record, so **Final Orders were not "
+                                        "attached**. Open the Oracle section in this tab "
+                                        "and read the case content into an authoring "
+                                        "record first, then save again.",
+                                    )
                                 )
                             elif fo_response.status_code != 200:
-                                st.warning(
-                                    "Case content saved, but Final Orders failed: "
-                                    f"{fo_response.text[:300]}"
+                                save_notices.append(
+                                    (
+                                        "warning",
+                                        "Case content saved, but Final Orders failed: "
+                                        f"{fo_response.text[:300]}",
+                                    )
                                 )
                     else:
                         # CREATE path: POST /finalize-case
@@ -1480,19 +1689,26 @@ with tab2:
                         st.session_state.generated_case = merged
                         st.session_state.editing_mode = False
                         st.session_state.editing_existing_case_id = None
-                        st.success(
-                            f"Case saved to database with ID: {final_case['case_id']}"
-                        )
+                        # Only the plain state key. `edit_copy_name` is the live widget's
+                        # own key and Streamlit rejects touching it after instantiation;
+                        # SIM_EDIT_KEYS clears it at load time instead, when the widget
+                        # is not on screen.
+                        st.session_state.pop("sim_copy_name", None)
                         if final_case.get("final_orders_saved"):
-                            st.info(
-                                f"{final_case['final_orders_saved']} Final Order(s) saved."
-                                + (
-                                    " The Oracle panel is running in the background — see "
-                                    "the View Final Case tab in a few minutes."
-                                    if final_case.get("oracle_started")
-                                    else ""
+                            save_notices.append(
+                                (
+                                    "info",
+                                    f"{final_case['final_orders_saved']} Final Order(s) "
+                                    "saved."
+                                    + (
+                                        " The Oracle panel is running in the background "
+                                        "— see the View Final Case tab in a few minutes."
+                                        if final_case.get("oracle_started")
+                                        else ""
+                                    ),
                                 )
                             )
+                        st.session_state.save_notices = save_notices
                         st.rerun()
                     else:
                         st.error(f"Error saving case: {save_response.text}")
@@ -1507,10 +1723,18 @@ with tab2:
         is_sim_ready = st.session_state.output_format == "sim_ready"
 
         st.header("Case Saved Successfully")
+        # Stashed by the save handler, which ends in st.rerun() and so cannot render them
+        # itself. Popped before the banner regardless of format, so a stale notice cannot
+        # survive into a later save. Warnings here are load-bearing: "Final Orders were
+        # not attached" under a green success banner is exactly how the authoring-record
+        # gap went unnoticed.
+        notices = st.session_state.pop("save_notices", [])
         if is_sim_ready:
             st.success(
                 f"**{case.get('saved_name', 'Case')}** saved to the simulator database (ID: {case_id})."
             )
+            for level, text in notices:
+                getattr(st, level)(text)
             st.info(
                 "Go to **View Final Case** to see the full content, or **Export Files** to download."
             )

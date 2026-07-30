@@ -7,33 +7,81 @@ Simulator-side work is tracked separately in `../direct-sim/FINAL_ORDERS_TODO.md
 
 ---
 
-## Start here — state as of 2026-07-28
+## Start here — state as of 2026-07-30
 
-**Phase 1 is complete and live.** Both apps are deployed, CI works in both repos, and the
-shared database carries the `authoring` schema.
+**Phases 1 through 3 are built and deployed. The 2026-07-30 work is in the working tree and
+committed nowhere.** That is the first thing a fresh session needs to know.
 
-| | |
+| | Verified how |
 |---|---|
-| case-gen live build | `f80f72f` — verify at `GET /` on the backend |
-| direct-sim live build | `683fff9` — verify at `GET /api/version` |
-| Shared DB revision | `0002_authoring_schema` |
-| Deploy | push to `main` in either repo; both pipelines are green |
+| case-gen live build | `35e17a7`, matching local `main` | `GET /` returned it, built 18:31Z |
+| direct-sim live build | local `main` is `276092c` | **not verified** — check `GET /api/version` |
+| Shared DB revision | `0003_final_orders_and_panels` | queried `alembic_version` directly |
+| `authoring` tables | all 7 present, including `panel_runs` / `panel_ratings` | queried `information_schema` |
+| Deploy | push to `main` in either repo | both pipelines green as of `35e17a7` |
 
-**Update 2026-07-29: Phases 2 and 3 are built** (Final Orders authoring + the Oracle panel), and
-the research group answered five of the nine open questions. Nothing is applied to production yet.
+### Uncommitted work in the tree (2026-07-30)
 
-**The immediate next actions, in order:**
+`git status` is **not** clean in either repo. Nothing below is committed or deployed.
 
-1. The verification pass under "Deploy integrity" below — the post-finalization editing flow has
-   never been exercised in production.
-2. Apply migration `0003_final_orders_and_panels` in `direct-sim`.
-3. Get the rating stem confirmed by the group before running any Oracle panel. It is the one
-   decision that is expensive to change later, because it invalidates every distribution generated
-   under the old wording.
+- **case-gen-entropy** — 8 modified, 2 new. Case versioning and adoption (`ADR-019`), a
+  fail-closed guard on a missing primary diagnosis, and secret scanning.
+- **direct-sim** — 2 new files, secret scanning only. No behaviour change.
 
-See "Before the first real run" under Phase 3.
+What `ADR-019` changed, in one paragraph: saving an edited case used to overwrite the simulator
+row and write no version, and separately, 102 of the 103 existing cases had no `case_version` at
+all, so they could not carry Final Orders or an Oracle panel and `/resync` could not help them.
+Saving now defaults to a new version with lineage and re-reads edited content into the structured
+record; `POST /sim-ready/case/{id}/adopt` gives a legacy case its first version, reconstructed from
+its markdown. Read `ADR-019` before touching the save path.
 
-**Five things that bit us on 2026-07-28, worth knowing before touching related code:**
+**Verified end to end** against the production schema, using temporary rows on the throwaway
+`tester` case (id 5) that were removed afterwards — the database was confirmed back at 103 cases,
+1 family, 1 version: adoption reconstructs a 16-field record with a correct door chart and HPI;
+Final Orders attach where they previously 404'd; the leak audit runs over 9 real terms instead of
+passing vacuously on 0; new-version saves carry lineage and Final Orders forward; a whitespace-only
+edit correctly spends no model call; a declined re-read is honestly marked detached; both preflight
+and the runner block on a blank diagnosis.
+
+**Not verified:** the Oracle panel has still never run on a real case. That is 15 calls per Final
+Order and it is gated on the stem decision, not on code.
+
+### The immediate next actions, in order
+
+1. **Commit and deploy the working tree**, then confirm `GET /` moves off `35e17a7`. Until then
+   `docs/email-draft-2026-07-30.md` cannot be sent — it describes buttons that are not live, and
+   the sections that depend on them are marked `[needs deploy]`.
+2. **Get the rating stem confirmed by the group.** Still the one decision that is expensive to
+   change later: it invalidates every distribution generated under the old wording.
+3. **Adopt the OSCE cases that are actually in use** and skim what the reconstruction produced.
+4. Then the first real panel run, and the verification pass under "Deploy integrity" below.
+
+### Environment — changed 2026-07-30, will bite a fresh session
+
+- **`OPENROUTER_API_KEY` now comes from `.env` only.** Two shell exports used to shadow it and
+  both were broken: `~/.zshenv` had a revoked key, and `~/.zshrc` read a Keychain item that does
+  not exist and so exported an empty string. Both were removed (backups: `~/.zsh{env,rc}.bak-2026-07-30`).
+- **`load_dotenv()` does not override an already-set variable, and treats empty-string as set.**
+  A process launched from a terminal that predates the fix inherits `OPENROUTER_API_KEY=""` and
+  passes it to every child, so `.env` is ignored and the backend raises at startup. **Restart the
+  terminal.** To check: `python3 -c "import os; print(repr(os.environ.get('OPENROUTER_API_KEY')))"`
+  — `''` is the poisoned state, `None` is correct.
+- **Secret scanning is now in both repos, by two different mechanisms.** `brew install gitleaks`
+  is required either way. In **case-gen** it is the pre-commit framework
+  (`uvx pre-commit install`), using `gitleaks-system` because the default hook builds from source
+  and pre-commit hardcodes `GOTOOLCHAIN=local`. In **direct-sim** it is that repo's own
+  `.githooks/pre-commit`, which already covered ruff, gitleaks, large files, `uv.lock`, and
+  `pip-audit` but had never been activated — `git config core.hooksPath .githooks` is now set in
+  this clone and is needed again in any fresh one. Both were tested with a canary commit that they
+  correctly rejected. Both repos' full history scans clean.
+- **Both hooks now fail closed when the gitleaks binary is missing.** direct-sim's previously
+  printed "skipped (gitleaks not installed)" and passed, so a machine without gitleaks would have
+  committed secrets with every check reporting green. Fixed 2026-07-30 and tested in all three
+  states: clean, secret staged, and binary absent. `brew install gitleaks` is therefore a hard
+  prerequisite, and `.github/workflows/secret-scan.yml` remains the backstop that `--no-verify`
+  cannot skip.
+
+**Seven things that have bitten us, worth knowing before touching related code:**
 
 1. `deploy-aca.sh redeploy` silently no-op'd for four months because it reused a mutable `:v1`
    tag. Fixed, and every image now carries a build stamp — check it after any deploy `ADR-012`
@@ -48,6 +96,15 @@ See "Before the first real run" under Phase 3.
    client-side and a server-forced rerun discards it. Use `on_click` callbacks for in-tab state
    mutations. Also: state derived once via `if "key" not in st.session_state` is never
    refreshed, which silently leaked one case's image links into another.
+6. **Streamlit prefers a widget's stored value over its `value=` argument.** Clearing only the
+   state key behind a keyed widget changes nothing on screen. `edit_oracle_specialty` did exactly
+   this: the previous case's specialty stayed in the box, was read back on the next run, and was
+   saved onto the newly loaded case, driving the wrong subspecialist seat on its Oracle roster.
+   Fixed 2026-07-30 by putting the *widget* keys in `SIM_EDIT_KEYS`. Anything rendered with `key=`
+   belongs in that list, not just the state key it feeds.
+7. **A blank `primary_diagnosis` makes the leak audit report success having checked nothing** —
+   `audit_leak` derives its terms from that field. Now blocking and deliberately not covered by
+   the leak-audit override `ADR-019`
 
 **Infrastructure note:** an older generation of this app (`backend-app`, `frontend-app`,
 `redis-app` on `medical-case-env` in `casegen-rg`) was found live on Sept 2025 code, pointed at
@@ -77,10 +134,17 @@ Prerequisites for everything else.
       deleted. Verified after: `authoring` present with all four tables, `case_details`/
       `transcripts`/`assessments` row counts unchanged.
 - [ ] **Point the Export tab at the new endpoint** instead of `st.session_state`
-- [ ] **Version on edit** — `PUT /sim-ready/case/{id}` currently updates in place without
-      creating a new `case_version`. Should pass `family_id` + `parent_version_id` `ADR-003`
-- [ ] **Backfill** existing sim-ready cases as v1 of their own family (analysis unavailable for
-      those — it was never stored)
+- [x] **Version on edit** (2026-07-30) — `PUT /sim-ready/case/{id}` now writes a new `case_version`
+      with `family_id` + `parent_version_id` by default, and re-reads edited content into the
+      structured record so the save does not leave the Oracle blocked. `save_mode=in_place` keeps
+      the old behaviour explicitly, and `POST .../copy` forks a new family `ADR-003` `ADR-019`
+- [x] **Adoption for pre-authoring-record cases** (2026-07-30) — `POST /sim-ready/case/{id}/adopt`
+      rebuilds the structured record from the case's markdown as v1 of a new family. Per case and
+      author-initiated rather than a bulk backfill: 102 of 103 cases qualify, most of them test
+      rows, and each adoption reconstructs content someone should read `ADR-019`
+- [ ] **Adopt the cases that are actually in use.** The mechanism exists; the OSCE cases still need
+      an author to run it and check what came back. Framework/LR data stays unavailable for them —
+      it was never stored
 - [ ] **Migrate the legacy beta tables** out of the second Neon project into `authoring` `ADR-001`
 - [ ] **Split learner data into its own schema** `ADR-008`
 
@@ -133,8 +197,9 @@ first real run" below.
 
 ### Before the first real run — blocking
 
-- [ ] **Apply migration 0003 to production.** `alembic upgrade head` in `direct-sim`. Until then
-      `GET /` reports `final_orders: false` and the endpoints return 503
+- [x] **Migration 0003 applied to production** — confirmed 2026-07-30: `alembic_version` holds
+      `0003_final_orders_and_panels`, all seven `authoring` tables exist, and `GET /` reports
+      `final_orders: true`
 - [ ] **Confirm the rating stem with the group.** Cory asked to see the change before adopting it.
       `GET /oracle/stems` renders both versions side by side. Changing it later invalidates every
       distribution generated before the change `ADR-014`
@@ -146,9 +211,11 @@ first real run" below.
       provider serves both paths `ADR-016`
 - [x] **Oracle/learner content parity check** — blocks the panel when the structured record and the
       simulator's content have diverged
-- [ ] **Add `OPENROUTER_API_KEY` to Container Apps secrets before deploying.** The backend now
-      raises at startup without it rather than silently falling back to the OpenAI key, which does
-      not carry zero-retention. This will fail the deploy loudly if forgotten
+- [x] **`OPENROUTER_API_KEY` is set in Container Apps.** Inferred rather than read: `LLMService()`
+      is constructed at import and `build_client()` raises on a missing key, so a backend that
+      serves `GET /` has a non-empty one. **Non-empty is not the same as valid** — a revoked key
+      passes startup and fails 60 seconds later inside a model call, which is exactly what the
+      local `.env` did. Unproven until a panel actually runs
 - [ ] End-to-end pass: author a case with 2 Final Orders, run the panel, confirm 15 ratings land,
       the histogram renders, and the flags are sensible
 - [ ] Confirm the background task survives an Azure Container Apps replica for the full 3–5
@@ -164,9 +231,10 @@ That is what let one case's image links leak into another.
 
 - [ ] **Guard the draft-clobber path.** Loading an existing case overwrites an unsaved draft
       silently. Same class of bug as the image-link leak, still present
-- [ ] **Make save semantics explicit.** "Update Case in Database" mutates in place and bypasses
-      versioning entirely, contradicting `ADR-003`. Once versioning is wired through, the actions
-      become *Save as new case* / *Save as new version* / *Update in place (correction)*
+- [x] **Make save semantics explicit** (2026-07-30). The three actions are now on the screen and
+      named for what they do: *Save as New Version* (default), *Save as New Case*, *Overwrite
+      Case*. Each states its consequence, including that overwriting detaches the Oracle
+      `ADR-003` `ADR-019`
 - [ ] **Then** revisit whether new-case and existing-case editing want separate tabs. Deferred
       deliberately: more tabs alone would not fix the shared-state problem, and splitting would
       duplicate ~600 lines of editor UI that would drift. Settle the semantics first — the tab
