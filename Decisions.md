@@ -122,6 +122,21 @@ model-versus-human agreement as a study to run, not an assumption.
 **Consequences.** Persona prompting yields *simulated* heterogeneity; this is a stated limitation,
 not a solved problem. A small human expert panel on 2–3 cases is the recommended validation.
 
+**First empirical signal, 2026-07-30.** The first live run — three EM panelists (community,
+academic, high-volume urban) on a brain MRI item in a posterior-circulation-stroke case — returned
+`+2, +2, +2` with rationales that were near-identical in wording, not merely in conclusion. Three
+panelists is far too few to conclude anything, and the item may genuinely be a +2. But it is the
+predicted failure mode showing up on the first attempt, and it is worth watching deliberately:
+
+- Compare within-role variance (the three EM seats) against across-role variance (EM vs.
+  geriatrician vs. stewardship vs. risk-averse). If the roster only produces spread across roles
+  and none within them, effective N is closer to the number of *distinct* roles than to 15.
+- This strengthens the case for the two still-unanswered questions: splitting the panel across
+  model families, and scheduling the human validation panel. Near-identical rationales are the
+  argument for both.
+- Record it in any writeup. A reviewer will ask, and "we looked and here is what we found" is a
+  much better answer than "we assumed heterogeneity".
+
 **See:** `docs/llm-panels.md`
 
 ---
