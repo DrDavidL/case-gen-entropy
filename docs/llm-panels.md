@@ -74,8 +74,30 @@ overridable: a leak hit can be a true match with a benign explanation, but conte
 explained away — it means the distribution would describe a case that no longer exists. A stale
 distribution is worse than a missing one, because it will be used.
 
-The authoring UI shows parity in the preflight panel before any call is spent, and blocking here is
-what surfaces the missing "version on edit" work rather than quietly producing bad data around it.
+**The comparison is whitespace-insensitive.** The editor splits the document on the Door Chart
+delimiter and rejoins the halves with a fixed blank line, so layout shifts on a save that changed
+nothing. Blank lines cannot affect the Oracle either, since it reads structured fields rather than
+this markdown. A check that fires when nothing changed is one people learn to route around, and
+this one blocks a panel.
+
+### Getting back to a runnable state
+
+`POST /sim-ready/case/{id}/resync` is the supported way out of a block. It re-reads the markdown
+the simulator now serves, rebuilds the structured record from it with one model call, and writes a
+new version with `parent_version_id` lineage, carrying the framework, likelihood ratios, and Final
+Orders forward. Parity is restored and the panel can run.
+
+Two properties worth keeping:
+
+- **Author-initiated, never automatic.** Any field the markdown does not state is reconstructed by
+  the model. That is acceptable as an explicit recovery step and unacceptable as a silent one on
+  every save.
+- **It creates a version rather than mutating one.** The old version, and any Oracle runs attached
+  to it, stay exactly as they were. The new distributions describe the new content, which is the
+  whole point of the version pin.
+
+This is a bridge, not the destination. Once structured-field editing lands (ADR-002, Phase 4) the
+markdown stops being an input and re-syncing stops being necessary.
 
 ## 3. Blinding is built, not stripped
 

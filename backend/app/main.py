@@ -1545,6 +1545,125 @@ async def update_case_final_orders(
         sim_db.close()
 
 
+@app.post("/sim-ready/case/{case_id}/resync")
+async def resync_case_structured(
+    case_id: int, username: str = Depends(verify_credentials)
+):
+    """Rebuild the structured record from the case's current markdown, as a new version.
+
+    Editing case content leaves the structured record behind, which blocks the Oracle
+    because its blinded view is built from that record (ADR-017). This is the supported
+    way back: re-read the document the simulator now serves, write it as a new version
+    with lineage, and carry the framework, likelihood ratios, and Final Orders forward.
+
+    Deliberately author-initiated. It spends a model call and reconstructs any field the
+    markdown does not state, so it is not something to do silently on every save.
+    """
+    _require_final_orders()
+    sim_db = next(get_sim_ready_db())
+    try:
+        version = _resolve_case_version(sim_db, case_id)
+        detail = (
+            sim_db.query(CaseDetailSimReady)
+            .filter(CaseDetailSimReady.id == case_id)
+            .first()
+        )
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Sim-ready case not found")
+
+        content = detail.content or ""
+        if not content.strip():
+            raise HTTPException(
+                status_code=400, detail="This case has no content to re-read."
+            )
+
+        previous_orders = [
+            final_orders_store.serialize_final_order(o)
+            for o in final_orders_store.load_final_orders(sim_db, version.id)
+        ]
+        family_id = version.case_family_id
+        parent_version_id = version.id
+        primary_diagnosis = version.primary_diagnosis or ""
+        description = version.description or ""
+        title = version.title or detail.saved_name
+        specialty = version.oracle_specialty
+        # Read the analysis off the current version so it carries forward rather than
+        # being regenerated: the framework and LRs describe the same case.
+        framework = [
+            {
+                "tier_level": f.tier_level,
+                "buckets": f.diagnostic_buckets,
+                "a_priori_probabilities": f.a_priori_probabilities,
+            }
+            for f in version.frameworks
+        ]
+        lrs = [
+            {
+                "feature_name": lr.feature_name,
+                "feature_category": lr.feature_category,
+                "diagnostic_bucket": lr.diagnostic_bucket,
+                "tier_level": lr.tier_level,
+                "likelihood_ratio": lr.likelihood_ratio,
+            }
+            for lr in version.feature_lrs
+        ]
+    finally:
+        sim_db.close()
+
+    try:
+        structured = await llm_service.extract_structured_from_content_async(
+            content, primary_diagnosis
+        )
+    except Exception as e:
+        logger.exception("Content re-sync failed for case %d", case_id)
+        raise HTTPException(
+            status_code=500, detail=f"Could not re-read the case content: {e}"
+        ) from e
+
+    sim_db = next(get_sim_ready_db())
+    try:
+        new_version = persist_case_version(
+            sim_db,
+            title=title,
+            description=description,
+            primary_diagnosis=primary_diagnosis,
+            case_details=structured.model_dump(),
+            diagnostic_framework=framework,
+            feature_likelihood_ratios=lrs,
+            output_format="sim_ready",
+            rendered_content=content,
+            # The structured record now describes this exact document, so the version is
+            # attached again and the Oracle can run.
+            render_detached=False,
+            case_detail_id=case_id,
+            family_id=family_id,
+            parent_version_id=parent_version_id,
+            oracle_specialty=specialty,
+        )
+        if previous_orders:
+            final_orders_store.replace_final_orders(
+                sim_db, new_version.id, previous_orders
+            )
+
+        logger.info(
+            "Re-synced case %d: version %d -> %d (v%d), %d Final Order(s) carried forward",
+            case_id,
+            parent_version_id,
+            new_version.id,
+            new_version.version,
+            len(previous_orders),
+        )
+        return {
+            "case_id": case_id,
+            "case_version_id": new_version.id,
+            "version": new_version.version,
+            "parent_version_id": parent_version_id,
+            "final_orders_carried_forward": len(previous_orders),
+        }
+    finally:
+        sim_db.close()
+
+
 @app.get("/sim-ready/case/{case_id}/oracle/preflight")
 async def oracle_preflight(case_id: int, username: str = Depends(verify_credentials)):
     """Everything checkable before spending a model call.

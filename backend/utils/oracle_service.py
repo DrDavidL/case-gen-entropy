@@ -41,6 +41,22 @@ def _all_suppression_terms(orders: list[Any]) -> list[str]:
     return terms
 
 
+def _normalize_content(text: str | None) -> str:
+    """Reduce markdown to its words, so only a real content edit counts as a change.
+
+    The editor splits the document on the Door Chart delimiter and rejoins the halves
+    with a fixed blank line, so blank-line placement and trailing spaces shift on a save
+    that changed nothing. Blank lines and indentation also cannot affect the Oracle,
+    which reads structured fields rather than this markdown.
+
+    So the comparison is whitespace-insensitive: any change to a word is caught, any
+    change to only layout is not. A check that fires when nothing changed is one people
+    learn to route around, and this check blocks a panel.
+    """
+    lines = [" ".join(line.split()) for line in (text or "").splitlines()]
+    return "\n".join(line for line in lines if line)
+
+
 def check_content_parity(db: Session, version: Any) -> dict[str, Any]:
     """Is the Oracle about to rate the case the learner will actually see?
 
@@ -82,24 +98,28 @@ def check_content_parity(db: Session, version: Any) -> dict[str, Any]:
             "reason": "render_detached",
             "message": (
                 "This case's markdown was hand-edited, so it is no longer generated from "
-                "the structured record the Oracle reads. The panel would rate the "
-                "pre-edit case. Re-generate the case from structured fields before "
-                "running the panel."
+                "the structured record the Oracle reads, and the panel would rate the "
+                "pre-edit case. Use 'Re-read case content' to rebuild the structured "
+                "record from the edited document."
             ),
         }
 
-    stored = (version.content_rendered or "").strip()
-    live = (detail.content or "").strip()
+    # Whitespace-normalised. The editor splits the markdown on the Door Chart delimiter
+    # and recombines it on save, which can shift blank lines and trailing spaces without
+    # any author touching a word. A byte comparison would block the panel on a save that
+    # changed nothing, and a check that fires on non-changes is one people learn to
+    # route around.
+    stored = _normalize_content(version.content_rendered)
+    live = _normalize_content(detail.content)
     if stored != live:
         return {
             "in_parity": False,
             "reason": "content_drift",
             "message": (
-                "The case content in the simulator has changed since this version was "
-                "written, so the Oracle's view is stale. This happens because editing a "
-                "case updates the simulator row in place without creating a new version "
-                "(ToDos.md, Phase 1: 'Version on edit'). Re-save the case as a new "
-                "version before running the panel."
+                "The case content has changed since this version was written, so the "
+                "Oracle's view is stale and the panel would rate the previous wording. "
+                "Use 'Re-read case content' to rebuild the structured record from the "
+                "current document and create a new version."
             ),
         }
 

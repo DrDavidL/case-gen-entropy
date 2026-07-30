@@ -347,6 +347,77 @@ class LLMService:
 
         return self._call_with_retry(_call, "generate_feature_likelihood_ratios")
 
+    def extract_structured_from_content(
+        self, content: str, primary_diagnosis: str = ""
+    ) -> SimReadyCaseDetailsStructured:
+        """Re-derive the structured case record from edited markdown.
+
+        The editing model is still markdown-first (ADR-002 inverts it, not yet built), so
+        an author who edits case content leaves the structured record behind. That record
+        is what the Oracle's blinded view is built from, which is why a content edit
+        blocks the panel (ADR-017).
+
+        This is the supported way back: read the document the simulator now serves and
+        rebuild the structured fields from it, restoring parity.
+
+        **This is a re-reading, not a merge.** Anything the markdown does not state is
+        reconstructed by the model, so it is author-initiated and never automatic.
+        """
+        prompt = f"""
+        Below is the full markdown content of an existing simulator case, as edited by its
+        author. Convert it back into the structured case record, field by field.
+
+        Rules:
+        - Take every value from the document. Do not invent clinical facts, do not
+          "improve" the case, and do not correct what looks like an error. Where the
+          document is explicit, reproduce it exactly.
+        - Only where a required field has no counterpart anywhere in the document may you
+          write a brief, clinically consistent value. Prefer the document's own wording.
+        - The structured feature lists (history_questions, physical_exam_findings,
+          diagnostic_workup) feed a likelihood-ratio pipeline. Populate them from the
+          history, examination, and workup described in the document.
+
+        CASE CONTENT
+        ------------
+        {content}
+        """
+
+        def _call():
+            response = self.client.beta.chat.completions.parse(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You convert an existing medical case document into a "
+                            "structured record. You are a faithful transcriber, not an "
+                            "author: preserve the document's content exactly."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format=SimReadyCaseDetailsStructured,
+                # Low temperature: this is transcription, and variation here silently
+                # rewrites a case the author already approved.
+                temperature=0.2,
+            )
+            parsed = response.choices[0].message.parsed
+            if parsed is None:
+                raise ValueError(
+                    "LLM returned empty parsed response for content re-sync"
+                )
+            return parsed
+
+        return self._call_with_retry(_call, "extract_structured_from_content")
+
+    async def extract_structured_from_content_async(
+        self, content: str, primary_diagnosis: str = ""
+    ) -> SimReadyCaseDetailsStructured:
+        """Async wrapper for extract_structured_from_content."""
+        return await asyncio.to_thread(
+            self.extract_structured_from_content, content, primary_diagnosis
+        )
+
     def propose_final_orders(
         self,
         case_details: CaseDetailsStructured,

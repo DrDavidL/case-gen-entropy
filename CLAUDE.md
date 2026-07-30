@@ -224,6 +224,7 @@ prefixed `casegen-`.
 | GET | `/sim-ready/case/{id}/oracle/preflight` | * | Blinded context + blocking leak audit |
 | POST | `/sim-ready/case/{id}/oracle/run` | * | Queue the Oracle panel (background) |
 | GET | `/sim-ready/case/{id}/oracle` | No | Distributions + item-quality flags |
+| POST | `/sim-ready/case/{id}/resync` | * | Rebuild the structured record from edited markdown as a new version |
 | GET | `/oracle/stems` | No | Both rating-stem versions, rendered side by side |
 | GET | `/oracle/roster` | No | Versioned panel roster + provider settings |
 
@@ -245,7 +246,10 @@ Four things that are easy to get wrong:
   posture unnoticed.
 - **The Oracle must rate the case the learner sees.** `check_content_parity()` blocks the panel
   when the structured record and `case_details.content` have diverged — by a hand-edit
-  (`render_detached`) or by an in-place update (`content_drift`). Not overridable.
+  (`render_detached`) or by an in-place update (`content_drift`). Not overridable. The way out is
+  `POST /sim-ready/case/{id}/resync`, which rebuilds the structured record from the edited markdown
+  as a new version. Comparison is whitespace-insensitive so the editor's split/rejoin does not
+  block a save that changed nothing.
 - **Migration `0003_final_orders_and_panels` lives in `direct-sim`**, which owns the shared
   database's schema. This app probes with `final_orders_schema_ready()` and degrades to 503 rather
   than running DDL. That probe is deliberately separate from `authoring_schema_ready()`, so a

@@ -389,8 +389,37 @@ def _histogram_bars(aggregate):
     return "\n".join(lines)
 
 
-def _render_oracle_section(case_id):
-    """Oracle distributions and item-quality flags for a saved case."""
+def _resync_case(case_id):
+    """Rebuild the structured record from the edited markdown so the Oracle can run."""
+    try:
+        r = requests.post(
+            f"{BACKEND_URL}/sim-ready/case/{case_id}/resync",
+            headers=get_auth_header(),
+            timeout=300,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            st.session_state.oracle_result = (
+                "success",
+                f"Re-read the case content into version {d.get('version')}. "
+                f"{d.get('final_orders_carried_forward', 0)} Final Order(s) carried "
+                "forward. You can run the Oracle panel now.",
+            )
+        else:
+            st.session_state.oracle_result = (
+                "error",
+                f"Re-sync failed: {r.text[:300]}",
+            )
+    except requests.exceptions.RequestException as e:
+        st.session_state.oracle_result = ("error", f"Connection error: {e}")
+
+
+def _render_oracle_section(case_id, key_prefix="view"):
+    """Oracle distributions and item-quality flags for a saved case.
+
+    `key_prefix` namespaces the widget keys. Streamlit renders every tab on each script
+    run, so calling this from two tabs without it collides on duplicate keys.
+    """
     if not case_id:
         return
 
@@ -443,14 +472,14 @@ def _render_oracle_section(case_id):
     with col_run:
         st.button(
             "Run Oracle panel",
-            key=f"run_oracle_{case_id}",
+            key=f"{key_prefix}_run_oracle_{case_id}",
             on_click=_run_oracle,
             args=(case_id,),
         )
     with col_refresh:
         # A plain button re-runs the script, which re-fetches. No st.rerun() here: that
         # would eject the user back to the first tab.
-        st.button("Refresh", key=f"refresh_oracle_{case_id}")
+        st.button("Refresh", key=f"{key_prefix}_refresh_oracle_{case_id}")
 
     with st.expander(
         "What the panel sees (blinded context + leak audit)", expanded=False
@@ -471,6 +500,21 @@ def _render_oracle_section(case_id):
                         "**Blocking — the panel would rate a different case than the "
                         f"learner sees.** {parity.get('message', '')}"
                     )
+                    if parity.get("reason") in ("content_drift", "render_detached"):
+                        st.caption(
+                            "Re-reading the case content rebuilds the structured record "
+                            "from the document the simulator now serves, which restores "
+                            "parity and lets the panel run. It costs one model call, "
+                            "creates a new version, and carries your Final Orders "
+                            "forward. Any detail the document does not state is "
+                            "reconstructed, so review the case afterwards."
+                        )
+                        st.button(
+                            "Re-read case content and create a new version",
+                            key=f"{key_prefix}_resync_{case_id}",
+                            on_click=_resync_case,
+                            args=(case_id,),
+                        )
                 elif parity.get("in_parity"):
                     st.success(
                         "Content parity confirmed — the case content the simulator "
@@ -502,14 +546,14 @@ def _render_oracle_section(case_id):
                     )
                     st.text_input(
                         "Reason for overriding the leak audit",
-                        key=f"leak_override_{case_id}",
+                        key=f"{key_prefix}_leak_override_{case_id}",
                         placeholder="CVA appears only as the father's history, not this patient's",
                     )
                     st.button(
                         "Run anyway with this reason",
-                        key=f"run_oracle_override_{case_id}",
+                        key=f"{key_prefix}_run_oracle_override_{case_id}",
                         on_click=_run_oracle,
-                        args=(case_id, f"leak_override_{case_id}"),
+                        args=(case_id, f"{key_prefix}_leak_override_{case_id}"),
                     )
                 st.caption(
                     f"Stem: {preflight.get('stem_version')} · roster "
@@ -1109,7 +1153,15 @@ with tab2:
                     "Run the Oracle panel after saving",
                     key="run_oracle_on_save",
                     help="15 blinded raters per order, 3-5 minutes in the background. You "
-                    "can also start it later from the View Final Case tab.",
+                    "can also start it from here once the case is saved.",
+                )
+
+            # For a case already in the database, the Oracle lives here too. Sending an
+            # author to another tab to run the panel on the orders they are editing makes
+            # the loop harder to close than it needs to be.
+            if st.session_state.get("editing_existing_case_id"):
+                _render_oracle_section(
+                    st.session_state.editing_existing_case_id, key_prefix="edit"
                 )
 
         # --- Common: Case details editing (beta shows all, sim-ready shows LR pipeline fields) ---
