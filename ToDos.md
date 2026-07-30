@@ -19,13 +19,19 @@ shared database carries the `authoring` schema.
 | Shared DB revision | `0002_authoring_schema` |
 | Deploy | push to `main` in either repo; both pipelines are green |
 
-**The immediate next action** is the verification pass under "Deploy integrity" below — the
-post-finalization editing flow has never been exercised in production. Do that before starting
-Phase 2.
+**Update 2026-07-29: Phases 2 and 3 are built** (Final Orders authoring + the Oracle panel), and
+the research group answered five of the nine open questions. Nothing is applied to production yet.
 
-**Then** Phase 2 (Final Orders). The research group has not yet answered the open questions at
-the bottom of this file; defaults are recorded in
-`docs/Final_Orders_Oracle_Proposal.docx` §12, so Phase 2 is not blocked on them.
+**The immediate next actions, in order:**
+
+1. The verification pass under "Deploy integrity" below — the post-finalization editing flow has
+   never been exercised in production.
+2. Apply migration `0003_final_orders_and_panels` in `direct-sim`.
+3. Get the rating stem confirmed by the group before running any Oracle panel. It is the one
+   decision that is expensive to change later, because it invalidates every distribution generated
+   under the old wording.
+
+See "Before the first real run" under Phase 3.
 
 **Five things that bit us on 2026-07-28, worth knowing before touching related code:**
 
@@ -90,24 +96,64 @@ ORM models and that the `include_name` filter stops autogenerate from dropping `
 
 ## Phase 2 — Final Orders
 
-- [ ] `case_final_orders` table `ADR-004`
-- [ ] Generation proposes 3–5 candidates from `diagnostic_workup`; author explicitly accepts
-- [ ] Authoring UI: order text, stem override, suppression synonyms, provenance
-- [ ] Edit support from the start — the update endpoint already exists, and shipping without it
-      reopens the March feedback
-- [ ] Cap of 5 enforced in the Pydantic schema, not just the UI
+**Built 2026-07-29.** Not yet applied to production or exercised end to end — see "Before the
+first real run" below.
+
+- [x] `case_final_orders` table `ADR-004` — `backend/models/database.py`, migration
+      `0003_final_orders_and_panels` in `direct-sim`
+- [x] Generation proposes 3–5 candidates from `diagnostic_workup`; author explicitly accepts.
+      `POST /final-orders/propose` writes nothing
+- [x] Authoring UI: order text, stem action with a live rendered preview, suppression synonyms,
+      provenance, per-row delete
+- [x] Edit support from the start — `PUT /sim-ready/case/{id}/final-orders`, replace semantics
+- [x] Cap of 5 enforced in the Pydantic schema **and** re-checked before the write
+- [x] `stem_action` column — deriving the gerund from the label gets activations wrong
+      ("ordering a stroke team activation")
 
 ## Phase 3 — Oracle panel
 
-- [ ] Shared panel runner: `panel_runs` + `panel_ratings`, `item_type` discriminator `ADR-006`
-- [ ] Responses API call path (`gpt-5.6`, `reasoning.effort`) — separate from the existing
-      `gpt-4o` / `chat.completions.parse` path
-- [ ] Blinded Oracle view built from structured fields, failing closed `ADR-005`
-- [ ] Blocking leak audit against the diagnosis and its synonyms
-- [ ] Background execution + status endpoint (3–5 min exceeds ingress timeouts)
-- [ ] Version-pinned staleness + re-run, append-only `ADR-003`
-- [ ] **Entropy / discrimination display for case authors** — the item-quality flags in
+**Built 2026-07-29.** Same caveat.
+
+- [x] Shared panel runner: `panel_runs` + `panel_ratings`, `item_type` discriminator `ADR-006`
+- [x] Responses API call path (`client.responses.parse`, `reasoning.effort`) — separate from the
+      existing `gpt-4o` / `chat.completions.parse` path
+- [x] Blinded Oracle view built from structured fields, failing closed `ADR-005`.
+      `diagnostic_workup.rationale` is excluded: it is authoring reasoning, not patient data, and
+      routinely names the diagnosis
+- [x] Blocking leak audit against the diagnosis, its tokens, and a curated synonym list, with a
+      **recorded override** for legitimate hits (family history of CVA in a stroke case) `ADR-014`
+- [x] Background execution + status endpoint
+- [x] Version-pinned staleness (computed from the context hash on read) + append-only re-runs
+      via `superseded_by` `ADR-003`
+- [x] **Entropy / discrimination display for case authors** — item-quality flags in
       `docs/llm-panels.md` §7
+- [x] Panel only runs when the case has Final Orders `ADR-014`
+- [x] Cost-of-commission weighting in the shared rater instruction `ADR-014`
+- [x] Specialty seat generalised from otolaryngologist, bound per case `ADR-014`
+
+### Before the first real run — blocking
+
+- [ ] **Apply migration 0003 to production.** `alembic upgrade head` in `direct-sim`. Until then
+      `GET /` reports `final_orders: false` and the endpoints return 503
+- [ ] **Confirm the rating stem with the group.** Cory asked to see the change before adopting it.
+      `GET /oracle/stems` renders both versions side by side. Changing it later invalidates every
+      distribution generated before the change `ADR-014`
+- [x] **`ORACLE_MODEL` verified.** The proposal's `gpt-5.6` does not exist; the 5.6 line ships as
+      `-luna` / `-sol` / `-terra`. Now `openai/gpt-5.6-sol`, confirmed against OpenRouter's
+      catalogue and exercised with a real 3-panelist run on 2026-07-30
+- [x] **All LLM calls moved to OpenRouter** on a dedicated zero-retention key. The Oracle moved off
+      the OpenAI-only Responses API to Chat Completions with `extra_body` reasoning, so one
+      provider serves both paths `ADR-016`
+- [x] **Oracle/learner content parity check** — blocks the panel when the structured record and the
+      simulator's content have diverged
+- [ ] **Add `OPENROUTER_API_KEY` to Container Apps secrets before deploying.** The backend now
+      raises at startup without it rather than silently falling back to the OpenAI key, which does
+      not carry zero-retention. This will fail the deploy loudly if forgotten
+- [ ] End-to-end pass: author a case with 2 Final Orders, run the panel, confirm 15 ratings land,
+      the histogram renders, and the flags are sensible
+- [ ] Confirm the background task survives an Azure Container Apps replica for the full 3–5
+      minutes. `BackgroundTasks` runs in-process, so a scale-in mid-run leaves a run stuck in
+      `running` with no reaper
 
 ## Phase 4 — Editing model
 
@@ -198,14 +244,50 @@ That is what let one case's image links leak into another.
 
 ## Open questions
 
-Awaiting research-group review (defaults in `docs/Final_Orders_Oracle_Proposal.docx` §10):
+Answered 2026-07-29 by Cory (comments on `Status_and_Decisions_Needed`) — full text in
+`Decisions.md` ADR-014:
 
-- [ ] Adopt the revised rating stem?
-- [ ] Does "fourth notch" map to reasoning effort `medium`?
-- [ ] Approve the 15-role panel roster, including the stewardship / risk-averse pair?
-- [ ] Rename "Final Orders" to "Key Management Decisions"?
-- [ ] Split the panel across two model families?
-- [ ] Schedule the human validation panel?
+- [x] Reasoning effort `medium` — confirmed, "we don't need highest reasoning possible for this"
+- [x] 15-role roster approved — but **for the Final Order SCT only**, never for learner rating,
+      and never for a case without Final Orders
+- [x] Stewardship / risk-averse pair — include, with runs independent and cost of commission
+      weighted
+- [x] Keep the name "Final Orders" — "Key Management Decisions" collides with the simulator's
+      separate 3-next-steps box
+- [x] Specialty seat generalised from otolaryngologist (David, same day)
+- [ ] **Rating stem — conditional.** "If something is being suggested to change what is currently
+      in place, then I would want to see those changes first." Both versions are implemented and
+      switchable; send the side-by-side from `GET /oracle/stems` and get a yes or no **before any
+      production panel runs**
+- [ ] Split the panel across two model families? Still unanswered; default single family for v1
+- [ ] Schedule the human validation panel? Still unanswered; default propose alongside the spring
+      review
+
+## Simulator (direct-sim) — from the 2026-07-29 review
+
+Tracked in full in `../direct-sim/FINAL_ORDERS_TODO.md`.
+
+- [x] **Unique ID on both downloads — already correct.** The transcript PDF is generated first, the
+      backend mints the code, and the assessment PDF is generated with that same code. Both PDFs
+      carry "Submission Code: <code>" and both DB rows store it. Verified by reading
+      `AssessmentPanel.tsx:83-162` and `backend/main.py:477-566`; not yet re-verified in the
+      running app
+- [x] **Advancing past the interview without retrieving the voice transcript — already gated.**
+      `SimulationPage.tsx:66-69` blocks the phase-1 advance until a transcript exists, with
+      voice-specific copy telling the learner to End then Retrieve
+- [ ] **A case with `allow_orders = false` cannot leave phase 1.** The advance button lives inside
+      `{activeTab === 'orders' && ordersAllowed && ...}` (`SimulationPage.tsx:166-221`), and the tab
+      bar is also hidden when orders are off — so there is no affordance at all. Found while
+      checking the item above. Confirm how many production cases have `allow_orders = false` before
+      judging severity
+- [ ] **Partial voice transcripts.** The gate checks that a transcript is non-empty, not that it is
+      current. Retrieve early, keep talking, advance — and the later turns are silently missing.
+      The copy says "retrieve again when fully done"; nothing enforces it. Options: warn when the
+      call has been active since the last retrieval, or auto-retrieve on advance
+- [ ] `MODEL_OPTIONS` is stale and excludes the `assessment` default (`anthropic/claude-opus-4.6`),
+      so the admin dropdown cannot represent the value in force `ADR-015`
+- [ ] Record the resolved model on `transcripts` and `assessments`, the way `panel_runs` does
+      `ADR-015`
 
 ---
 

@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 
 import requests
 import streamlit as st
@@ -75,6 +76,537 @@ def _add_image_link():
 def _remove_image_link():
     if len(st.session_state.get("sim_image_links", [])) > 1:
         st.session_state.sim_image_links.pop()
+
+
+# --- Final Orders (script concordance items) ---
+#
+# Up to five per case, and zero is the normal case: no Final Orders means the case has no
+# script concordance item and no Oracle panel runs for it.
+
+MAX_FINAL_ORDERS = 5
+
+# Rows carry a uid and widgets are keyed by it, not by list index. Index-keyed widgets
+# break on per-row delete: Streamlit keeps widget state by key, so removing row 2 leaves
+# row 3's text sitting in row 2's key and the author's edits silently shuffle up.
+SIM_EDIT_KEYS = [
+    "sim_rendered_content",
+    "sim_custom_input",
+    "sim_custom_evaluation",
+    "sim_allow_orders",
+    "sim_learner_tasks",
+    "sim_image_links",
+    "sim_final_orders",
+    "sim_oracle_specialty",
+    "final_order_candidates",
+    "final_orders_notice",
+    "oracle_result",
+]
+
+
+@st.cache_data(ttl=300)
+def _oracle_stems():
+    """The backend's stem registry.
+
+    Fetched rather than duplicated here: the stem is the measurement instrument, and a
+    second copy in the UI would drift from the one that actually gets sent to the panel.
+    """
+    try:
+        r = requests.get(f"{BACKEND_URL}/oracle/stems", timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return {}
+
+
+def _render_learner_item(action):
+    """The exact item a learner will see, rendered from the backend's active stem."""
+    registry = _oracle_stems()
+    version = registry.get("default_stem_version")
+    stem = (registry.get("stems") or {}).get(version)
+    if not stem:
+        return (
+            "(Could not reach the backend to render the item. It will use the stem "
+            "version configured there.)"
+        )
+    lines = [str(stem.get("learner_lead", "")).replace("{action}", action), ""]
+    for value, label in stem.get("anchors", []):
+        prefix = f"{value:+d}" if value != 0 else " 0"
+        lines.append(f"  {prefix} = {label}")
+    if stem.get("has_info_deficit_checkbox"):
+        lines += [
+            "",
+            "  [ ] My rating would change substantially with information I was not able",
+            "      to obtain during this encounter.",
+        ]
+    return "\n".join(lines)
+
+
+def _action_phrase(order_text, stem_action):
+    """Mirror of backend.utils.oracle_stems.default_action_phrase for the live preview."""
+    explicit = (stem_action or "").strip()
+    if explicit:
+        return explicit
+    label = (order_text or "").strip().rstrip(".")
+    if not label:
+        return ""
+    lowered = label[0].lower() + label[1:]
+    if label.split()[0].lower().endswith("ing"):
+        return lowered
+    article = "" if label.split()[0].lower() in ("a", "an", "the") else "a "
+    return f"ordering {article}{lowered}"
+
+
+def _blank_final_order():
+    return {
+        "_uid": uuid.uuid4().hex[:8],
+        "order_text": "",
+        "stem_action": "",
+        "provenance": "author_entered",
+        "suppress_results": True,
+        "suppression_message": "Result pending",
+        "suppression_synonyms": "",
+    }
+
+
+def _final_orders():
+    if "sim_final_orders" not in st.session_state:
+        st.session_state.sim_final_orders = []
+    return st.session_state.sim_final_orders
+
+
+def _add_final_order():
+    orders = _final_orders()
+    if len(orders) >= MAX_FINAL_ORDERS:
+        st.session_state.final_orders_notice = (
+            "warning",
+            f"A case may have at most {MAX_FINAL_ORDERS} Final Orders.",
+        )
+        return
+    orders.append(_blank_final_order())
+
+
+def _delete_final_order(uid):
+    orders = _final_orders()
+    st.session_state.sim_final_orders = [o for o in orders if o.get("_uid") != uid]
+    # Drop the deleted row's widget state so a later row cannot inherit it.
+    for prefix in ("fo_text", "fo_action", "fo_syn", "fo_msg", "fo_suppress"):
+        st.session_state.pop(f"{prefix}_{uid}", None)
+
+
+def _propose_final_orders():
+    """Ask the backend for candidate Final Orders. Writes nothing to the database."""
+    case = st.session_state.get("generated_case") or {}
+    payload = {"max_candidates": MAX_FINAL_ORDERS}
+    if st.session_state.get("session_id"):
+        payload["session_id"] = st.session_state.session_id
+    else:
+        payload["case_details"] = case.get("case_details")
+        payload["primary_diagnosis"] = (
+            (case.get("case_details") or {})
+            .get("diagnostic_reasoning", {})
+            .get("differential_diagnoses", "")
+        )
+    try:
+        r = requests.post(
+            f"{BACKEND_URL}/final-orders/propose",
+            json=payload,
+            headers=get_auth_header(),
+            timeout=300,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            st.session_state.final_order_candidates = data.get("candidates", [])
+            st.session_state.final_orders_notice = (
+                "success",
+                f"{len(st.session_state.final_order_candidates)} candidate(s) proposed. "
+                "Nothing is saved until you accept one.",
+            )
+        else:
+            st.session_state.final_orders_notice = (
+                "error",
+                f"Could not propose Final Orders: {r.text[:300]}",
+            )
+    except requests.exceptions.RequestException as e:
+        st.session_state.final_orders_notice = ("error", f"Connection error: {e}")
+
+
+def _accept_candidate(position):
+    """Copy a proposed candidate into the author's list, recording its provenance."""
+    candidates = st.session_state.get("final_order_candidates") or []
+    if position >= len(candidates):
+        return
+    orders = _final_orders()
+    if len(orders) >= MAX_FINAL_ORDERS:
+        st.session_state.final_orders_notice = (
+            "warning",
+            f"A case may have at most {MAX_FINAL_ORDERS} Final Orders.",
+        )
+        return
+    candidate = candidates[position]
+    row = _blank_final_order()
+    row.update(
+        {
+            "order_text": candidate.get("order_text", ""),
+            "stem_action": candidate.get("stem_action", ""),
+            # Recorded so a reviewer can ask whether model-proposed orders behave
+            # differently from author-written ones.
+            "provenance": "llm_suggested_accepted",
+            "suppression_synonyms": ", ".join(
+                candidate.get("suggested_synonyms") or []
+            ),
+        }
+    )
+    orders.append(row)
+    st.session_state.final_orders_notice = (
+        "success",
+        f"Accepted **{row['order_text']}**. Edit it freely — it is yours now.",
+    )
+
+
+def _final_orders_payload():
+    """The author's Final Orders in the shape the API expects."""
+    payload = []
+    for position, order in enumerate(_final_orders(), start=1):
+        text = (order.get("order_text") or "").strip()
+        if not text:
+            continue
+        synonyms = [
+            s.strip()
+            for s in (order.get("suppression_synonyms") or "").split(",")
+            if s.strip()
+        ]
+        payload.append(
+            {
+                "order_text": text,
+                "display_order": position,
+                "stem_action": (order.get("stem_action") or "").strip() or None,
+                "provenance": order.get("provenance", "author_entered"),
+                "suppress_results": bool(order.get("suppress_results", True)),
+                "suppression_message": (
+                    order.get("suppression_message") or "Result pending"
+                ),
+                "suppression_synonyms": synonyms,
+            }
+        )
+    return payload
+
+
+def _load_final_orders_from_db(case_id):
+    """Populate the editor from a saved case. Returns the resolved specialty."""
+    try:
+        r = requests.get(
+            f"{BACKEND_URL}/sim-ready/case/{case_id}/final-orders", timeout=30
+        )
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        rows = []
+        for order in data.get("final_orders", []):
+            row = _blank_final_order()
+            row.update(
+                {
+                    "order_text": order.get("order_text", ""),
+                    "stem_action": order.get("stem_action") or "",
+                    "provenance": order.get("provenance", "author_entered"),
+                    "suppress_results": bool(order.get("suppress_results", True)),
+                    "suppression_message": (
+                        order.get("suppression_message") or "Result pending"
+                    ),
+                    "suppression_synonyms": ", ".join(
+                        order.get("suppression_synonyms") or []
+                    ),
+                }
+            )
+            rows.append(row)
+        st.session_state.sim_final_orders = rows
+        return data.get("oracle_specialty")
+    except requests.exceptions.RequestException:
+        return None
+
+
+def _run_oracle(case_id, override_key=None):
+    """Queue the Oracle panel.
+
+    Sends a leak-audit override only when the author actually typed a reason, so the
+    default path stays fail-closed.
+    """
+    reason = (st.session_state.get(override_key) or "").strip() if override_key else ""
+    try:
+        r = requests.post(
+            f"{BACKEND_URL}/sim-ready/case/{case_id}/oracle/run",
+            json={"leak_override_reason": reason or None},
+            headers=get_auth_header(),
+            timeout=60,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            st.session_state.oracle_result = (
+                "success",
+                f"Oracle panel queued: ~{data.get('estimated_calls')} calls. This takes "
+                "3-5 minutes; use Refresh to check progress."
+                + (
+                    " Ran with a recorded leak-audit override."
+                    if data.get("leak_override_applied")
+                    else ""
+                ),
+            )
+        else:
+            st.session_state.oracle_result = (
+                "error",
+                f"Could not start: {r.text[:400]}",
+            )
+    except requests.exceptions.RequestException as e:
+        st.session_state.oracle_result = ("error", f"Connection error: {e}")
+
+
+_FLAG_RENDERER = {"info": st.info, "caution": st.warning, "warning": st.error}
+
+
+def _histogram_bars(aggregate):
+    """Text bars for the five rating bins.
+
+    Deliberately text rather than a chart: five ordinal bins with a meaningful zero read
+    better as aligned bars than as a plot with a re-sorted axis, and it needs no extra
+    dependency in the frontend.
+    """
+    histogram = aggregate.get("histogram") or {}
+    realized = aggregate.get("realized_n") or 0
+    labels = {
+        "-2": "-2 clearly inappropriate",
+        "-1": "-1 probably inappropriate",
+        "0": " 0 equally appropriate or not",
+        "1": "+1 probably appropriate",
+        "2": "+2 clearly appropriate",
+    }
+    lines = []
+    for key in ("-2", "-1", "0", "1", "2"):
+        count = int(histogram.get(key, 0) or 0)
+        share = (count / realized) if realized else 0
+        lines.append(
+            f"{labels[key]:<32} {'█' * count}{'·' * max(0, realized - count)} "
+            f"{count:>2} ({share:.0%})"
+        )
+    return "\n".join(lines)
+
+
+def _render_oracle_section(case_id):
+    """Oracle distributions and item-quality flags for a saved case."""
+    if not case_id:
+        return
+
+    st.write("---")
+    st.subheader("Oracle Reference Distributions")
+    st.caption(
+        "Model-derived reference distributions, not an expert consensus. Fifteen blinded "
+        "raters with different practice perspectives; the spread is what tells you whether "
+        "an item will discriminate between learners."
+    )
+
+    notice = st.session_state.pop("oracle_result", None)
+    if notice:
+        getattr(st, notice[0])(notice[1])
+
+    try:
+        r = requests.get(f"{BACKEND_URL}/sim-ready/case/{case_id}/oracle", timeout=30)
+    except requests.exceptions.RequestException as e:
+        st.error(f"Connection error: {e}")
+        return
+
+    if r.status_code == 503:
+        st.warning(
+            "Final Orders and the Oracle are unavailable on this backend — the shared "
+            "database is missing the Phase 2/3 tables. Run `alembic upgrade head` in the "
+            "direct-sim repo."
+        )
+        return
+    if r.status_code == 404:
+        st.info(
+            "This case has no authoring record, so it cannot carry Final Orders or an "
+            "Oracle panel. Cases finalized before the authoring record existed need to be "
+            "re-saved."
+        )
+        return
+    if r.status_code != 200:
+        st.error(f"Could not load Oracle data: {r.text[:300]}")
+        return
+
+    data = r.json()
+    items = data.get("items") or []
+    if not items:
+        st.info(
+            "No Final Orders on this case, so there is no script concordance item and no "
+            "Oracle panel to run. That is a supported configuration, not a gap."
+        )
+        return
+
+    col_run, col_refresh, _ = st.columns([1, 1, 3])
+    with col_run:
+        st.button(
+            "Run Oracle panel",
+            key=f"run_oracle_{case_id}",
+            on_click=_run_oracle,
+            args=(case_id,),
+        )
+    with col_refresh:
+        # A plain button re-runs the script, which re-fetches. No st.rerun() here: that
+        # would eject the user back to the first tab.
+        st.button("Refresh", key=f"refresh_oracle_{case_id}")
+
+    with st.expander(
+        "What the panel sees (blinded context + leak audit)", expanded=False
+    ):
+        try:
+            pre = requests.get(
+                f"{BACKEND_URL}/sim-ready/case/{case_id}/oracle/preflight",
+                headers=get_auth_header(),
+                timeout=60,
+            )
+            if pre.status_code == 200:
+                preflight = pre.json()
+                audit = preflight.get("leak_audit") or {}
+
+                parity = preflight.get("content_parity") or {}
+                if parity and not parity.get("in_parity"):
+                    st.error(
+                        "**Blocking — the panel would rate a different case than the "
+                        f"learner sees.** {parity.get('message', '')}"
+                    )
+                elif parity.get("in_parity"):
+                    st.success(
+                        "Content parity confirmed — the case content the simulator "
+                        "serves matches the record the panel reads."
+                    )
+
+                if preflight.get("ready"):
+                    st.success(
+                        "Leak audit passed — the diagnosis and its known synonyms do not "
+                        f"appear in the blinded context ({len(audit.get('terms_checked', []))} "
+                        "terms checked)."
+                    )
+                else:
+                    st.error(
+                        "**Blocking:** the diagnosis or a known synonym appears in the "
+                        "blinded context. The panel will not run until this is fixed, or "
+                        "until you record why the hit is benign."
+                    )
+                    for hit in audit.get("hits", []):
+                        st.markdown(
+                            f"- **{hit.get('term')}** ({hit.get('kind')}, in "
+                            f"_{hit.get('section', 'unknown section')}_): "
+                            f"`{hit.get('snippet', '')}`"
+                        )
+                    st.caption(
+                        "A hit under Family History is usually a relative's condition "
+                        "rather than this patient's diagnosis. If that is the case here, "
+                        "say so and run anyway — the reason is stored on the run."
+                    )
+                    st.text_input(
+                        "Reason for overriding the leak audit",
+                        key=f"leak_override_{case_id}",
+                        placeholder="CVA appears only as the father's history, not this patient's",
+                    )
+                    st.button(
+                        "Run anyway with this reason",
+                        key=f"run_oracle_override_{case_id}",
+                        on_click=_run_oracle,
+                        args=(case_id, f"leak_override_{case_id}"),
+                    )
+                st.caption(
+                    f"Stem: {preflight.get('stem_version')} · roster "
+                    f"{preflight.get('panel_roster_version')} · specialty seat: "
+                    f"{preflight.get('roster_specialty')} · ~"
+                    f"{preflight.get('estimated_calls')} calls"
+                )
+                if preflight.get("suppressed_tests"):
+                    st.caption(
+                        "Withheld from the panel's available-tests list: "
+                        + ", ".join(preflight["suppressed_tests"])
+                    )
+                st.code(preflight.get("blinded_context", ""), language="markdown")
+            else:
+                st.warning(f"Preflight unavailable: {pre.text[:300]}")
+        except requests.exceptions.RequestException as e:
+            st.warning(f"Preflight unavailable: {e}")
+
+    for item in items:
+        order = item.get("final_order") or {}
+        run = item.get("run")
+        aggregate = item.get("aggregate")
+
+        st.markdown(f"#### {order.get('order_text', 'Final Order')}")
+
+        if run is None:
+            st.info("No Oracle panel has run for this order yet.")
+            continue
+
+        status = run.get("status")
+        if status in ("pending", "running"):
+            st.info(
+                f"Panel {status}. 15 calls per order takes 3-5 minutes; press Refresh."
+            )
+            continue
+        if status == "failed":
+            st.error(f"Panel failed: {run.get('error') or 'unknown error'}")
+            continue
+
+        if item.get("stale"):
+            st.warning(
+                "**Stale.** The case content has changed since this panel ran, so this "
+                "distribution describes a version the learner will not see. Re-run it."
+            )
+
+        if not aggregate:
+            continue
+
+        m1, m2, m3, m4 = st.columns(4)
+        modal = aggregate.get("modal_rating")
+        m1.metric("Mode", f"{modal:+d}" if isinstance(modal, int) else "—")
+        m2.metric(
+            "Agreement",
+            f"{aggregate['modal_proportion']:.0%}"
+            if aggregate.get("modal_proportion") is not None
+            else "—",
+        )
+        m3.metric(
+            "Entropy",
+            f"{aggregate['entropy']:.2f}"
+            if aggregate.get("entropy") is not None
+            else "—",
+            help="0 = unanimous, 2.32 = maximum disagreement across the five bins.",
+        )
+        m4.metric(
+            "Panel",
+            f"{aggregate.get('realized_n', 0)}/{aggregate.get('requested_n', 0)}",
+            help="Usable ratings over requested. Failed calls are excluded from every "
+            "proportion rather than counted as anything.",
+        )
+
+        st.code(_histogram_bars(aggregate), language="text")
+
+        for flag in aggregate.get("flags") or []:
+            _FLAG_RENDERER.get(flag.get("severity"), st.info)(flag.get("message", ""))
+
+        if aggregate.get("null_outcomes"):
+            st.caption(f"Excluded calls: {aggregate['null_outcomes']}")
+
+        with st.expander("Panelist reasoning", expanded=False):
+            st.caption(
+                f"Model {run.get('model')} · effort {run.get('reasoning_effort')} · stem "
+                f"{run.get('stem_version')} · roster {run.get('panel_roster_version')}"
+            )
+            for rating in run.get("ratings") or []:
+                value = (rating.get("value") or {}).get("rating")
+                head = (
+                    f"**{rating.get('persona_id')}** — "
+                    f"{f'{value:+d}' if isinstance(value, int) else rating.get('status')}"
+                )
+                st.markdown(head)
+                if rating.get("rationale"):
+                    st.caption(rating["rationale"])
+                if rating.get("top_concerns"):
+                    st.caption("Concerns: " + ", ".join(rating["top_concerns"]))
+                if rating.get("error"):
+                    st.caption(f"Error: {rating['error']}")
 
 
 def _as_dict(value, default):
@@ -426,6 +958,160 @@ with tab2:
             )
             st.session_state.sim_learner_tasks = learner_tasks
 
+            # --- Final Orders (script concordance items) ---
+            st.subheader("Final Orders (Script Concordance)")
+
+            fo_supported = bool(_backend_status().get("final_orders"))
+            if not fo_supported:
+                st.warning(
+                    "The backend reports Final Orders as unavailable — the shared database "
+                    "is missing `case_final_orders` / `panel_runs` / `panel_ratings`. Run "
+                    "`alembic upgrade head` in the direct-sim repo. Orders entered here "
+                    "would not be saved."
+                )
+
+            st.caption(
+                "Up to five clinical actions whose **appropriateness** the learner rates "
+                "from -2 to +2 after the encounter. Leaving this empty is normal and fully "
+                "supported: a case with no Final Orders has no script concordance item, and "
+                "no Oracle panel runs for it."
+            )
+
+            notice = st.session_state.pop("final_orders_notice", None)
+            if notice:
+                getattr(st, notice[0])(notice[1])
+
+            with st.expander("Suggest candidates with AI", expanded=False):
+                st.caption(
+                    "Suggestions only — nothing is written until you accept one. Accepted "
+                    "candidates are recorded as model-proposed so the effect of that can be "
+                    "tested later."
+                )
+                st.button(
+                    "Propose Final Orders",
+                    key="propose_final_orders",
+                    on_click=_propose_final_orders,
+                    disabled=not st.session_state.get("session_id")
+                    and not case.get("case_details"),
+                )
+
+                for position, candidate in enumerate(
+                    st.session_state.get("final_order_candidates") or []
+                ):
+                    st.markdown(
+                        f"**{position + 1}. {candidate.get('order_text', '')}**"
+                    )
+                    st.caption(
+                        f"Why it discriminates: {candidate.get('debatability', '')}"
+                    )
+                    if candidate.get("learner_item_preview"):
+                        st.code(candidate["learner_item_preview"], language="text")
+                    if candidate.get("suggested_synonyms"):
+                        st.caption(
+                            "Suggested suppression synonyms: "
+                            + ", ".join(candidate["suggested_synonyms"])
+                        )
+                    st.button(
+                        "Accept",
+                        key=f"accept_candidate_{position}",
+                        on_click=_accept_candidate,
+                        args=(position,),
+                    )
+                    st.write("---")
+
+            orders = _final_orders()
+            if not orders:
+                st.info("No Final Orders on this case.")
+
+            for order in orders:
+                uid = order["_uid"]
+                label = order.get("order_text") or "New Final Order"
+                with st.expander(f"{label}", expanded=not order.get("order_text")):
+                    tag = (
+                        "AI-proposed, accepted by you"
+                        if order.get("provenance") == "llm_suggested_accepted"
+                        else "Entered by you"
+                    )
+                    st.caption(f"Provenance: {tag}")
+
+                    order["order_text"] = st.text_input(
+                        "Order",
+                        value=order.get("order_text", ""),
+                        key=f"fo_text_{uid}",
+                        placeholder="Brain MRI",
+                        help="Short label. Also used by the simulator to recognise the order.",
+                    )
+                    order["stem_action"] = st.text_input(
+                        "Phrasing inside the rating item",
+                        value=order.get("stem_action", ""),
+                        key=f"fo_action_{uid}",
+                        placeholder="ordering a brain MRI",
+                        help="Leave blank for tests and treatments. Set it for activations "
+                        "and consults, where 'ordering <label>' reads wrong.",
+                    )
+
+                    action = _action_phrase(
+                        order.get("order_text", ""), order.get("stem_action")
+                    )
+                    if action:
+                        st.caption("The learner will read:")
+                        st.code(_render_learner_item(action), language="text")
+
+                    order["suppress_results"] = st.checkbox(
+                        "Withhold the result during the encounter",
+                        value=bool(order.get("suppress_results", True)),
+                        key=f"fo_suppress_{uid}",
+                        help="Uncertainty has to survive until the rating is collected, or "
+                        "the rating measures nothing.",
+                    )
+                    order["suppression_synonyms"] = st.text_input(
+                        "Suppression synonyms (comma-separated)",
+                        value=order.get("suppression_synonyms", ""),
+                        key=f"fo_syn_{uid}",
+                        placeholder="MRI, MRI brain, MR brain, magnetic resonance",
+                        help="Alternate phrasings a learner might type. Be specific — a "
+                        "broad term like 'imaging' would suppress unrelated orders, and a "
+                        "brain-MRI entry must not suppress 'MRI lumbar spine'.",
+                    )
+                    order["suppression_message"] = st.text_input(
+                        "Message shown instead of the result",
+                        value=order.get("suppression_message", "Result pending"),
+                        key=f"fo_msg_{uid}",
+                    )
+
+                    st.button(
+                        "Delete this Final Order",
+                        key=f"fo_del_{uid}",
+                        on_click=_delete_final_order,
+                        args=(uid,),
+                    )
+
+            col_add_fo, col_spec = st.columns([1, 2])
+            with col_add_fo:
+                st.button(
+                    "Add Final Order",
+                    key="add_final_order",
+                    on_click=_add_final_order,
+                    disabled=len(orders) >= MAX_FINAL_ORDERS,
+                )
+            with col_spec:
+                st.session_state.sim_oracle_specialty = st.text_input(
+                    "Applicable specialty for the Oracle panel",
+                    value=st.session_state.get("sim_oracle_specialty") or "",
+                    key="edit_oracle_specialty",
+                    placeholder="otolaryngologist",
+                    help="Fills the specialty-surgeon / subspecialist seat on the 15-role "
+                    "panel. Leave blank for a generalist reading of that seat.",
+                )
+
+            if orders:
+                st.checkbox(
+                    "Run the Oracle panel after saving",
+                    key="run_oracle_on_save",
+                    help="15 blinded raters per order, 3-5 minutes in the background. You "
+                    "can also start it later from the View Final Case tab.",
+                )
+
         # --- Common: Case details editing (beta shows all, sim-ready shows LR pipeline fields) ---
         # Hide LR pipeline sections when editing an existing case loaded from DB
         # (structured data was not persisted for sim-ready cases)
@@ -655,6 +1341,38 @@ with tab2:
                             json=update_payload,
                             headers=get_auth_header(),
                         )
+
+                        # Final Orders live on the authoring record, not on case_details,
+                        # so they are a second call. Done unconditionally: an empty list
+                        # is the author saying "this case has no Final Orders", and
+                        # skipping the call would leave deleted orders attached.
+                        if is_sim_ready and save_response.status_code == 200:
+                            fo_response = requests.put(
+                                f"{BACKEND_URL}/sim-ready/case/{existing_id}/final-orders",
+                                json={
+                                    "final_orders": _final_orders_payload(),
+                                    "oracle_specialty": st.session_state.get(
+                                        "sim_oracle_specialty"
+                                    )
+                                    or None,
+                                    "run_oracle": bool(
+                                        st.session_state.get("run_oracle_on_save")
+                                    ),
+                                },
+                                headers=get_auth_header(),
+                            )
+                            if fo_response.status_code == 404:
+                                st.warning(
+                                    "Case content saved, but this case has no authoring "
+                                    "record yet, so Final Orders could not be attached. "
+                                    "Cases finalized before the authoring record existed "
+                                    "need to be re-saved as a new case first."
+                                )
+                            elif fo_response.status_code != 200:
+                                st.warning(
+                                    "Case content saved, but Final Orders failed: "
+                                    f"{fo_response.text[:300]}"
+                                )
                     else:
                         # CREATE path: POST /finalize-case
                         finalize_payload = {
@@ -689,6 +1407,13 @@ with tab2:
                                 finalize_payload["rendered_content"] = (
                                     st.session_state.sim_rendered_content
                                 )
+                            finalize_payload["final_orders"] = _final_orders_payload()
+                            finalize_payload["oracle_specialty"] = (
+                                st.session_state.get("sim_oracle_specialty") or None
+                            )
+                            finalize_payload["run_oracle"] = bool(
+                                st.session_state.get("run_oracle_on_save")
+                            )
 
                         save_response = requests.post(
                             f"{BACKEND_URL}/finalize-case",
@@ -706,6 +1431,16 @@ with tab2:
                         st.success(
                             f"Case saved to database with ID: {final_case['case_id']}"
                         )
+                        if final_case.get("final_orders_saved"):
+                            st.info(
+                                f"{final_case['final_orders_saved']} Final Order(s) saved."
+                                + (
+                                    " The Oracle panel is running in the background — see "
+                                    "the View Final Case tab in a few minutes."
+                                    if final_case.get("oracle_started")
+                                    else ""
+                                )
+                            )
                         st.rerun()
                     else:
                         st.error(f"Error saving case: {save_response.text}")
@@ -738,16 +1473,12 @@ with tab2:
             st.session_state.session_id = None
             st.session_state.editing_mode = False
             st.session_state.editing_existing_case_id = None
-            # Clear sim-ready editing state
-            for key in [
-                "sim_rendered_content",
-                "sim_custom_input",
-                "sim_custom_evaluation",
-                "sim_allow_orders",
-                "sim_learner_tasks",
-                "sim_image_links",
-            ]:
+            # Clear sim-ready editing state. Driven off one list so a new derived key
+            # cannot be forgotten here — that omission is what leaked one case's image
+            # links into another.
+            for key in SIM_EDIT_KEYS:
                 st.session_state.pop(key, None)
+            st.session_state.pop("run_oracle_on_save", None)
             st.rerun()
     else:
         st.info(
@@ -776,15 +1507,9 @@ with tab2:
                             sim_case = case_resp.json()
 
                             # Clear any previous editing state
-                            for key in [
-                                "sim_rendered_content",
-                                "sim_custom_input",
-                                "sim_custom_evaluation",
-                                "sim_allow_orders",
-                                "sim_learner_tasks",
-                                "sim_image_links",
-                            ]:
+                            for key in SIM_EDIT_KEYS:
                                 st.session_state.pop(key, None)
+                            st.session_state.pop("run_oracle_on_save", None)
 
                             # Populate session state with DB data
                             st.session_state.generated_case = {
@@ -838,6 +1563,13 @@ with tab2:
                             # just loaded.
                             st.session_state.pop("sim_image_links", None)
 
+                            # Same hazard for Final Orders, with a worse consequence: the
+                            # previous case's orders would attach to this one and drive
+                            # its suppression and its Oracle panel.
+                            st.session_state.pop("sim_final_orders", None)
+                            specialty = _load_final_orders_from_db(sim_case["id"])
+                            st.session_state.sim_oracle_specialty = specialty or ""
+
                             st.success(
                                 f"Loaded **{sim_case['saved_name']}** (ID: {sim_case['id']}) for editing."
                             )
@@ -890,6 +1622,8 @@ with tab3:
                     st.error(f"Could not load case: {sim_resp.text}")
             except requests.exceptions.RequestException as e:
                 st.error(f"Connection error: {e!s}")
+
+            _render_oracle_section(case.get("case_id"))
         else:
             col1, col2 = st.columns([2, 1])
 

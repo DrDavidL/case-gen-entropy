@@ -9,8 +9,10 @@ from backend.models.structured_outputs import (
     CaseDetailsStructured,
     DiagnosticFrameworkStructured,
     FeatureLikelihoodRatiosStructured,
+    FinalOrderCandidatesStructured,
     SimReadyCaseDetailsStructured,
 )
+from backend.utils.llm_client import CASE_GEN_MODEL, build_client, provider_name
 
 load_dotenv()
 
@@ -23,12 +25,12 @@ LLM_RETRY_BASE_DELAY = float(os.getenv("LLM_RETRY_BASE_DELAY", "2.0"))
 
 class LLMService:
     def __init__(self):
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is required")
-        self.client = openai.OpenAI(
-            api_key=api_key,
-            timeout=LLM_REQUEST_TIMEOUT,
+        # Provider and model come from backend/utils/llm_client.py so the Oracle path and
+        # this one cannot end up pointed at different providers.
+        self.client = build_client(LLM_REQUEST_TIMEOUT)
+        self.model = CASE_GEN_MODEL
+        logger.info(
+            "LLMService using provider=%s model=%s", provider_name(), self.model
         )
 
     def _call_with_retry(self, parse_fn, description: str):
@@ -127,7 +129,7 @@ class LLMService:
 
         def _call():
             response = self.client.beta.chat.completions.parse(
-                model="gpt-4o-2024-08-06",
+                model=self.model,
                 messages=[
                     {
                         "role": "system",
@@ -209,7 +211,7 @@ class LLMService:
 
         def _call():
             response = self.client.beta.chat.completions.parse(
-                model="gpt-4o-2024-08-06",
+                model=self.model,
                 messages=[
                     {
                         "role": "system",
@@ -262,7 +264,7 @@ class LLMService:
 
         def _call():
             response = self.client.beta.chat.completions.parse(
-                model="gpt-4o-2024-08-06",
+                model=self.model,
                 messages=[
                     {
                         "role": "system",
@@ -327,7 +329,7 @@ class LLMService:
 
         def _call():
             response = self.client.beta.chat.completions.parse(
-                model="gpt-4o-2024-08-06",
+                model=self.model,
                 messages=[
                     {
                         "role": "system",
@@ -344,6 +346,108 @@ class LLMService:
             return parsed
 
         return self._call_with_retry(_call, "generate_feature_likelihood_ratios")
+
+    def propose_final_orders(
+        self,
+        case_details: CaseDetailsStructured,
+        primary_diagnosis: str,
+        max_candidates: int = 5,
+    ) -> FinalOrderCandidatesStructured:
+        """Propose candidate Final Orders for an author to accept, edit, or reject.
+
+        These are **suggestions only**. Nothing is written until the author explicitly
+        accepts one, and accepted candidates are stored with provenance
+        `llm_suggested_accepted` so the self-fulfilling-distribution question can be
+        tested rather than argued about (ADR-004).
+
+        Ranked toward debatable actions on purpose: an action every clinician agrees
+        about produces a unanimous reference distribution, which makes an item that
+        cannot separate learners.
+        """
+        workup = "\n".join(
+            f"- {dt.test} (rationale: {dt.rationale})"
+            for dt in case_details.diagnostic_workup
+        )
+
+        prompt = f"""
+        Propose 3 to {max_candidates} candidate "Final Orders" for this case.
+
+        A Final Order is a single clinical action — a diagnostic test, a treatment, a
+        consultation, or an activation (e.g. stroke team activation) — whose
+        APPROPRIATENESS a learner will rate from -2 (clearly inappropriate) to +2
+        (clearly appropriate) after finishing the encounter, before any pending result
+        returns.
+
+        Case presentation: {case_details.presentation}
+
+        Primary diagnosis (for your reasoning only — never name it in your output):
+        {primary_diagnosis}
+
+        Diagnostic tests the case already specifies:
+        {workup}
+
+        Selection criteria, in order of importance:
+
+        1. **Debatable.** Prefer actions where thoughtful clinicians would genuinely
+           disagree given only what the encounter reveals. An action everyone would
+           rate +2, or everyone would rate -2, makes a worthless item.
+        2. **Consequential.** Prefer actions with real cost, risk, or burden — advanced
+           imaging, invasive procedures, resource activations — over low-stakes tests.
+           The rating is meaningful when getting it wrong matters.
+        3. **Decidable now.** The learner must be able to reach a view from the history
+           and examination alone, without the result of the action itself.
+
+        Prefer actions drawn from the specified workup above, but add a treatment,
+        consultation, or activation if it makes a better item than anything listed.
+
+        Do not name or hint at the primary diagnosis anywhere in your output — not in the
+        order text, not in the debatability note, not in the synonyms. The learner and the
+        reference panel are both blinded to it.
+
+        Order your candidates most debatable first.
+        """
+
+        def _call():
+            response = self.client.beta.chat.completions.parse(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an expert emergency medicine physician and assessment "
+                            "designer building script concordance test items. You choose "
+                            "clinical actions that discriminate between learners rather "
+                            "than actions with obvious answers."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format=FinalOrderCandidatesStructured,
+                temperature=0.7,
+            )
+            parsed = response.choices[0].message.parsed
+            if parsed is None:
+                raise ValueError(
+                    "LLM returned empty parsed response for Final Order candidates"
+                )
+            # The cap bounds Oracle cost at max_candidates x 15 calls. Truncate rather
+            # than reject: extra candidates are harmless suggestions, and failing the
+            # whole call over an off-by-one in the model's counting is worse.
+            parsed.candidates = parsed.candidates[:max_candidates]
+            return parsed
+
+        return self._call_with_retry(_call, "propose_final_orders")
+
+    async def propose_final_orders_async(
+        self,
+        case_details: CaseDetailsStructured,
+        primary_diagnosis: str,
+        max_candidates: int = 5,
+    ) -> FinalOrderCandidatesStructured:
+        """Async wrapper for propose_final_orders."""
+        return await asyncio.to_thread(
+            self.propose_final_orders, case_details, primary_diagnosis, max_candidates
+        )
 
     async def generate_case_details_async(
         self, description: str, primary_diagnosis: str

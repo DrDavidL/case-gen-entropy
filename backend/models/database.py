@@ -138,13 +138,12 @@ class CaseDetailSimReady(SimReadyBase):
 AUTHORING_SCHEMA = "authoring"
 
 
-def authoring_schema_ready(bind) -> bool:
-    """Report whether the authoring tables exist. Never creates them.
+def _tables_present(bind, required: set[str], feature: str, consequence: str) -> bool:
+    """Report whether every table in `required` exists under the authoring schema.
 
-    These tables are owned by Alembic in the direct-sim repo (revision
-    0002_authoring_schema), because that repo owns the shared database's migration
-    history. This app detects and adapts rather than running DDL, so the two never race
-    and the schema has exactly one source of truth.
+    These tables are owned by Alembic in the direct-sim repo, because that repo owns
+    the shared database's migration history. This app detects and adapts rather than
+    running DDL, so the two never race and the schema has exactly one source of truth.
 
     Returns False on any error — case generation must keep working without it.
     """
@@ -152,28 +151,56 @@ def authoring_schema_ready(bind) -> bool:
         return False
     try:
         names = set(inspect(bind).get_table_names(schema=AUTHORING_SCHEMA))
-        required = {
-            "case_families",
-            "case_versions",
-            "diagnostic_frameworks",
-            "feature_likelihood_ratios",
-        }
         missing = required - names
         if missing:
             logger.warning(
-                "Authoring schema incomplete (missing: %s). Run 'alembic upgrade head' "
-                "in the direct-sim repo. Framework/LR data will not be persisted.",
+                "%s schema incomplete (missing: %s). Run 'alembic upgrade head' in the "
+                "direct-sim repo. %s",
+                feature,
                 ", ".join(sorted(missing)),
+                consequence,
             )
             return False
         return True
     except Exception as e:
         logger.error(
-            "Could not inspect '%s' schema; authoring persistence disabled: %s",
+            "Could not inspect '%s' schema; %s disabled: %s",
             AUTHORING_SCHEMA,
+            feature,
             str(e)[:200],
         )
         return False
+
+
+def authoring_schema_ready(bind) -> bool:
+    """Report whether the core authoring tables exist (revision 0002)."""
+    return _tables_present(
+        bind,
+        {
+            "case_families",
+            "case_versions",
+            "diagnostic_frameworks",
+            "feature_likelihood_ratios",
+        },
+        "Authoring",
+        "Framework/LR data will not be persisted.",
+    )
+
+
+def final_orders_schema_ready(bind) -> bool:
+    """Report whether the Final Orders / panel tables exist (revision 0003).
+
+    Probed separately from `authoring_schema_ready` on purpose: a deploy that has 0002
+    but not 0003 must keep persisting framework and LR data. Folding these names into
+    the core check would disable all authoring persistence over a missing Phase 2/3
+    migration, which is a strictly worse failure than losing the new features alone.
+    """
+    return _tables_present(
+        bind,
+        {"case_final_orders", "panel_runs", "panel_ratings"},
+        "Final Orders / panel",
+        "Final Orders and the Oracle panel will be unavailable.",
+    )
 
 
 class CaseFamily(SimReadyBase):
@@ -234,6 +261,13 @@ class CaseVersion(SimReadyBase):
     case_detail_id = Column(Integer, nullable=True, index=True)
 
     output_format = Column(String, nullable=False, default="sim_ready")
+
+    # Which specialty fills the "applicable specialty surgeon or subspecialist" seat on
+    # the Oracle roster for this case — otolaryngology for dizziness, vascular surgery
+    # for a limb-ischemia case, and so on (ADR-014). Null falls back to the roster
+    # default. Authored here; recorded per run on `panel_runs.roster_specialty`.
+    oracle_specialty = Column(String, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     published_at = Column(DateTime, nullable=True)
@@ -246,6 +280,12 @@ class CaseVersion(SimReadyBase):
         "AuthoringFeatureLikelihoodRatio",
         back_populates="case_version",
         lazy="selectin",
+    )
+    final_orders = relationship(
+        "CaseFinalOrder",
+        back_populates="case_version",
+        lazy="selectin",
+        order_by="CaseFinalOrder.display_order",
     )
 
 
@@ -290,6 +330,182 @@ class AuthoringFeatureLikelihoodRatio(SimReadyBase):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     case_version = relationship("CaseVersion", back_populates="feature_lrs")
+
+
+# ---------------------------------------------------------------------------
+# Final Orders + the LLM panel subsystem (ADR-004, ADR-005, ADR-006, ADR-014)
+#
+# Alembic revision 0003_final_orders_and_panels in the direct-sim repo owns this
+# DDL. Probe with `final_orders_schema_ready()` before touching these tables.
+# ---------------------------------------------------------------------------
+
+
+class CaseFinalOrder(SimReadyBase):
+    """One author-chosen clinical action whose appropriateness a learner rates.
+
+    Version-pinned rather than pointing at `case_details`: a case's Final Orders are
+    part of the snapshot a learner saw, and a later edit must not retroactively change
+    what was measured (ADR-003). The simulator resolves them through the latest
+    `case_versions` row for a `case_detail_id` — see `load_final_orders_for_case_detail`.
+
+    Zero rows means the case has no Final Orders, and therefore no script concordance
+    item and no Oracle panel (ADR-014). That is the whole opt-out mechanism; there is
+    deliberately no global toggle.
+    """
+
+    __tablename__ = "case_final_orders"
+    __table_args__ = {"schema": AUTHORING_SCHEMA}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    case_version_id = Column(
+        Integer,
+        ForeignKey(f"{AUTHORING_SCHEMA}.case_versions.id"),
+        nullable=False,
+        index=True,
+    )
+    display_order = Column(Integer, nullable=False, default=1)
+    order_text = Column(Text, nullable=False)
+
+    # The action as a gerund phrase, inserted into the stem: "ordering a brain MRI",
+    # "activating the stroke team". Stored rather than derived because deriving it from
+    # `order_text` gets activations and consults wrong — "Stroke team activation" would
+    # render as "ordering a stroke team activation". Null falls back to the derivation,
+    # which is correct for the tests and treatments that make up most Final Orders.
+    stem_action = Column(Text, nullable=True)
+
+    # Optional per-order override of the default stem lead. Null means "use the registry
+    # default for `stem_version`" — see backend/utils/oracle_stems.py.
+    stem_template = Column(Text, nullable=True)
+
+    # author_entered | llm_suggested_accepted. Recorded because if the same model family
+    # both proposes an order and rates its appropriateness, the distribution is partly
+    # self-fulfilling; provenance lets that be tested rather than argued about.
+    provenance = Column(String, nullable=False, default="author_entered")
+
+    suppress_results = Column(Boolean, nullable=False, default=True)
+    suppression_message = Column(Text, nullable=False, default="Result pending")
+    # Author-supplied alternate phrasings the simulator also suppresses. Explicit and
+    # conservative on purpose: a false positive degrades the simulation, a false
+    # negative destroys the measurement.
+    suppression_synonyms = Column(JSONB, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    case_version = relationship("CaseVersion", back_populates="final_orders")
+
+
+class PanelRun(SimReadyBase):
+    """One fan-out of a claim to N independent blinded raters.
+
+    Serves both the Oracle and LR re-assessment through `item_type` (ADR-006).
+    Append-only: a re-run creates a new row and points the old one at it via
+    `superseded_by`. For a research dataset, what was generated and when is part of
+    the data, so nothing is overwritten.
+    """
+
+    __tablename__ = "panel_runs"
+    __table_args__ = {"schema": AUTHORING_SCHEMA}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # 'final_order_appropriateness' | 'lr_reassessment'
+    item_type = Column(String, nullable=False, index=True)
+    # Deliberately not a ForeignKey: it points into a different table per item_type.
+    item_ref_id = Column(Integer, nullable=False, index=True)
+
+    case_version_id = Column(
+        Integer,
+        ForeignKey(f"{AUTHORING_SCHEMA}.case_versions.id"),
+        nullable=False,
+        index=True,
+    )
+
+    panel_size_requested = Column(Integer, nullable=False)
+    # Realized N is stored separately and is what every denominator uses. We will not
+    # rate fourteen panelists and report fifteen.
+    panel_size_realized = Column(Integer, nullable=False, default=0)
+
+    model = Column(String)
+    reasoning_effort = Column(String)
+    provider = Column(String, default="openai")
+    api_surface = Column(String, default="responses")
+    prompt_template_version = Column(String)
+    stem_version = Column(String)
+    panel_roster_version = Column(String)
+    # Which specialty filled the applicable-subspecialist seat for this run (ADR-014).
+    roster_specialty = Column(String, nullable=True)
+
+    blinded_context_hash = Column(String)
+    claim_hash = Column(String)
+
+    # Set when an author ran the panel despite a failing leak audit, with their stated
+    # reason. The audit blocks by default and stays blocking; this records the exception
+    # in the research data rather than letting it happen invisibly. Expect legitimate
+    # uses — "CVA appears only as the father's history" — and expect a reviewer to ask.
+    leak_override_reason = Column(Text, nullable=True)
+
+    status = Column(
+        String, nullable=False, default="pending"
+    )  # pending|running|complete|failed
+    error = Column(Text, nullable=True)
+    superseded_by = Column(
+        Integer, ForeignKey(f"{AUTHORING_SCHEMA}.panel_runs.id"), nullable=True
+    )
+
+    # Convenience copy. `panel_ratings` rows are authoritative; aggregates are
+    # recomputed on read so the scoring rule can change without regenerating data.
+    aggregates = Column(JSONB, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    ratings = relationship(
+        "PanelRating",
+        back_populates="run",
+        lazy="selectin",
+        order_by="PanelRating.panelist_index",
+    )
+
+
+class PanelRating(SimReadyBase):
+    """One panelist's rating within a run. The source of truth for any aggregate."""
+
+    __tablename__ = "panel_ratings"
+    __table_args__ = {"schema": AUTHORING_SCHEMA}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        Integer,
+        ForeignKey(f"{AUTHORING_SCHEMA}.panel_runs.id"),
+        nullable=False,
+        index=True,
+    )
+
+    panelist_index = Column(Integer, nullable=False)
+    persona_id = Column(String)
+    persona_hash = Column(String)
+
+    # Shape varies by item_type: {"rating": int} for the Oracle,
+    # {"lr_low": float, "lr_high": float, ...} for LR re-assessment.
+    value = Column(JSONB, nullable=True)
+    rationale = Column(Text, nullable=True)
+    # Top 2-3 diagnostic concerns. Drives the transparency signal: if >80% of panelists
+    # name the ground truth, the case is diagnostically transparent.
+    top_concerns = Column(JSONB, nullable=True)
+
+    # ok | parse_error | refusal | api_error. Anything but 'ok' is a null-outcome row,
+    # excluded from the denominator rather than dropped.
+    status = Column(String, nullable=False, default="ok")
+    error = Column(Text, nullable=True)
+
+    raw_response_id = Column(String, nullable=True)
+    latency_ms = Column(Integer, nullable=True)
+    tokens_in = Column(Integer, nullable=True)
+    tokens_out = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    run = relationship("PanelRun", back_populates="ratings")
 
 
 def get_db():

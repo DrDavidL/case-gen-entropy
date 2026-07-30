@@ -16,21 +16,40 @@ Examples: ordering a brain MRI, ordering an echocardiogram, obtaining a PET scan
 stroke team.
 
 Per-case and optional, with no global admin toggle. Zero rows means the simulator never presents
-the step.
+the step **and no Oracle panel runs for the case** — Cory's explicit condition (ADR-014): no Final
+Order means no script concordance item, so there is nothing for a reference distribution to
+describe. Enforced in code: `POST .../oracle/run` refuses with `no_final_orders`, and
+`run_oracle_for_case_version` returns `skipped`.
+
+**"Final Orders" is the settled name** (ADR-014). Do not rename it to "Key Management Decisions":
+that collides with the simulator's separate *3 next steps in management* box, which is an
+unauthored open text field and is not this instrument. Proposal §4.3 Change 5 is withdrawn.
 
 ## 2. The rating stem
 
-**Learner-facing:**
+> **Not yet approved.** Cory's 2026-07-29 review said the current stem "seems reasonable" and
+> asked to see any proposed change first. The revision below *is* a change, so it is implemented
+> but not treated as settled. **Do not run a production Oracle panel until the group confirms the
+> wording** — the stem determines what the panel is asked, so changing it afterwards invalidates
+> every distribution generated before the change. Nothing is lost by waiting: no case carries Final
+> Orders yet. See `Decisions.md` ADR-014.
+
+Both wordings live in `backend/utils/oracle_stems.py` and are selected by `ORACLE_STEM_VERSION`:
+`v1_original` (Alex's draft) and `v2_revised` (below). Every run is stamped with
+`panel_runs.stem_version`. `GET /oracle/stems` renders both side by side **from the code that will
+actually run**, so the comparison the group reviews cannot drift from the instrument.
+
+**Learner-facing (`v2_revised`):**
 
 ```
 Based on the information you gathered during this encounter, and before any
 pending results return, ordering a brain MRI now would be:
 
-  -2  Clearly inappropriate
-  -1  Probably inappropriate
-   0  Equally appropriate to order or not to order
-  +1  Probably appropriate
-  +2  Clearly appropriate
+  -2 = Clearly inappropriate
+  -1 = Probably inappropriate
+   0 = Equally appropriate to order or not to order
+  +1 = Probably appropriate
+  +2 = Clearly appropriate
 
   [ ] My rating would change substantially with information I was not able
       to obtain during this encounter.
@@ -42,8 +61,19 @@ pending results return, ordering a brain MRI now would be:
 Based on all clinical information documented in this case record, and before
 any pending results return, ordering a brain MRI now would be:
 
-  (identical -2 to +2 anchors)
+  (identical -2 to +2 anchors, no checkbox)
 ```
+
+### The `{action}` placeholder
+
+The stem takes a **gerund phrase**, not a bare noun: `ordering a brain MRI`,
+`activating the stroke team`. Hard-coding `ordering {order}` into the lead renders "ordering
+activating the stroke team" for the stroke-activation example from Cory's own list.
+
+Stored as `case_final_orders.stem_action`. When null it is derived from `order_text`, which is
+correct for tests and treatments and wrong for activations and consults — so the authoring UI shows
+the fully rendered item live as the author types, rather than letting them discover the phrasing
+after a panel has run on it.
 
 Two properties are load-bearing and must not be lost in UI work:
 
@@ -62,14 +92,39 @@ Full justification for the wording, including why it differs from the original d
 
 ## 3. Authoring flow
 
-1. Generation proposes 3–5 candidate Final Orders, drawn from the case's existing
-   `diagnostic_workup` list and ranked toward the more debatable ones.
-2. **Nothing is written until the author explicitly accepts, edits, or replaces it.** Candidates
-   are suggestions; the decision is the author's.
-3. The author supplies suppression synonyms per order (see §5).
-4. On finalize, the Oracle panel runs in the background (`llm-panels.md`).
-5. The authoring UI shows the resulting distribution with item-quality flags, so the author can
-   see before shipping that an order is uninformative.
+1. `POST /final-orders/propose` returns 3–5 candidates, drawn from the case's `diagnostic_workup`
+   and ranked toward the more debatable ones. It **writes nothing**.
+2. **Nothing is persisted until the author explicitly accepts, edits, or replaces it.** Candidates
+   are suggestions; the decision is the author's. Each carries a `debatability` note saying why
+   clinicians would disagree, and a rendered preview of the exact item a learner will read.
+3. The author supplies suppression synonyms per order (see §5). Accepting a candidate pre-fills
+   them from its suggestions.
+4. On finalize (`run_oracle: true`) or on demand, the Oracle panel runs in the background
+   (`llm-panels.md`). Never at preview: authors regenerate previews repeatedly while drafting and
+   each would otherwise trigger 75 calls.
+5. The View tab shows the resulting distribution with item-quality flags, so the author can see
+   before shipping that an order is uninformative.
+
+**Editing is supported from day one**, not deferred. Post-finalization editing was the top item
+from the March feedback; shipping Final Orders that could not be edited would reopen it
+immediately. `PUT /sim-ready/case/{id}/final-orders` replaces the list on the case's latest
+version.
+
+### Endpoints
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/final-orders/propose` | * | Candidate Final Orders. Writes nothing |
+| GET | `/sim-ready/case/{id}/final-orders` | No | Orders + flattened suppression terms — the simulator's read |
+| PUT | `/sim-ready/case/{id}/final-orders` | * | Replace the list on the latest version |
+| GET | `/sim-ready/case/{id}/oracle/preflight` | * | Blinded context, leak audit, rendered items, roster |
+| POST | `/sim-ready/case/{id}/oracle/run` | * | Queue the panel; refuses on no orders or a failed audit |
+| GET | `/sim-ready/case/{id}/oracle` | No | Distributions and item-quality flags |
+| GET | `/oracle/stems` | No | Both stem versions rendered side by side |
+| GET | `/oracle/roster` | No | Versioned roster and provider settings |
+
+`GET /` and `/health` report `final_orders` so a deploy missing migration 0003 is visible rather
+than mysterious.
 
 **Provenance is recorded** — `author_entered` versus `llm_suggested_accepted`. If the same model
 family both proposes an order and rates its appropriateness, the distribution is partly
@@ -79,12 +134,13 @@ be among the first questions a reviewer asks.
 ## 4. Schema
 
 ```
-case_final_orders
+case_final_orders                                    -- authoring schema, migration 0003
   id                    PK
   case_version_id       FK -> case_versions.id (indexed)   -- version-pinned, ADR-003
   display_order         INT
-  order_text            TEXT     -- "Order a brain MRI"
-  stem_template         TEXT     -- optional per-order override of the default stem
+  order_text            TEXT     -- "Brain MRI" — label, and the simulator's match target
+  stem_action           TEXT     -- "ordering a brain MRI"; null derives from order_text
+  stem_template         TEXT     -- optional per-order override of the stem lead
   provenance            VARCHAR  -- author_entered | llm_suggested_accepted
   suppress_results      BOOL     default true
   suppression_message   TEXT     default "Result pending"
@@ -97,8 +153,21 @@ Oracle results attach through `panel_runs` with
 (`llm-panels.md` §6). Learner responses attach through `learner_item_responses`
 (`architecture-target.md` §5). No Final-Order-specific tables beyond the one above.
 
-Cap enforcement: five orders is a hard limit in the Pydantic schema, not a UI convention — it
-bounds Oracle cost at 75 calls per case.
+`stem_template` overrides the lead but **never the anchors** — an author editing wording cannot
+accidentally change the scale.
+
+**There is no `case_detail_id` column, deliberately.** The simulator knows only a
+`case_details.id`, and resolves Final Orders through the most recent `case_versions` row carrying
+that id (`load_final_orders_for_case_detail`, or `GET /sim-ready/case/{id}/final-orders`). A
+denormalised copy would look convenient and would make "which orders belong to this case"
+ambiguous the moment a case has two versions — which is the situation versioning exists to create.
+
+Cap enforcement: five orders is a hard limit in the Pydantic schema (`max_length=5`) **and**
+re-checked in `replace_final_orders` before the write, not a UI convention. It bounds Oracle cost
+at 75 calls per case.
+
+Writes **replace** rather than merge. The submitted list is the author's authoritative statement of
+what the case has, so a deleted order actually disappears instead of lingering attached.
 
 ## 5. Suppression synonyms
 

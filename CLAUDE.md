@@ -128,6 +128,17 @@ Saves to 3 tables: `cases`, `diagnostic_frameworks`, `feature_likelihood_ratios`
 | `LLM_REQUEST_TIMEOUT` | No | `120` | OpenAI request timeout (seconds) |
 | `LLM_MAX_RETRIES` | No | `3` | Max LLM retry attempts |
 | `LLM_RETRY_BASE_DELAY` | No | `2.0` | Base delay between retries (seconds) |
+| `OPENROUTER_API_KEY` | Yes* | — | Required when `LLM_PROVIDER=openrouter` (the default). No silent fallback |
+| `LLM_PROVIDER` | No | `openrouter` | `openrouter` or `openai` |
+| `CASE_GEN_MODEL` | No | `openai/gpt-4o-2024-08-06` | Generation-pipeline model |
+| `ORACLE_MODEL` | No | `openai/gpt-5.6-sol` | Oracle panel model. Bare `openai/gpt-5.6` does **not** exist |
+| `ORACLE_REASONING_EFFORT` | No | `medium` | Confirmed by the research group, ADR-014 |
+| `ORACLE_STEM_VERSION` | No | `v2_revised` | `v1_original` or `v2_revised`. **Stem not yet group-approved** |
+| `ORACLE_CONCURRENCY` | No | `8` | Panel semaphore. Sequential would take ~30 min/case |
+| `ORACLE_DEFAULT_SPECIALTY` | No | generic | Fallback for the roster's subspecialist seat |
+| `PANEL_REQUEST_TIMEOUT` | No | `180` | Per-panelist request timeout (seconds) |
+| `PANEL_MAX_RETRIES` | No | `3` | Per-panelist retry attempts |
+| `PANEL_RETRY_BASE_DELAY` | No | `2.0` | Base delay between panelist retries (seconds) |
 
 ## Commands
 
@@ -207,6 +218,41 @@ prefixed `casegen-`.
 | GET | `/case/{id}/simulator-export/prior-probabilities` | No | Prior probs JSON (beta) |
 | GET | `/case/{id}/simulator-export/case-summary` | No | Case summary text (beta) |
 | GET | `/case/{id}/debug-lr-data` | No | Debug raw LR data (beta) |
+| POST | `/final-orders/propose` | * | Candidate Final Orders. Writes nothing |
+| GET | `/sim-ready/case/{id}/final-orders` | No | Orders + suppression terms (the simulator's read) |
+| PUT | `/sim-ready/case/{id}/final-orders` | * | Replace the list on the case's latest version |
+| GET | `/sim-ready/case/{id}/oracle/preflight` | * | Blinded context + blocking leak audit |
+| POST | `/sim-ready/case/{id}/oracle/run` | * | Queue the Oracle panel (background) |
+| GET | `/sim-ready/case/{id}/oracle` | No | Distributions + item-quality flags |
+| GET | `/oracle/stems` | No | Both rating-stem versions, rendered side by side |
+| GET | `/oracle/roster` | No | Versioned panel roster + provider settings |
+
+## Final Orders and the Oracle panel
+
+Built 2026-07-29, **not yet applied to production**. Specs: `docs/final-orders-sct.md` (authoring,
+the rating stem) and `docs/llm-panels.md` (roster, blinding, aggregation). Decisions: `ADR-004`,
+`ADR-005`, `ADR-006`, `ADR-014`.
+
+Four things that are easy to get wrong:
+
+- **No Final Orders means no Oracle panel.** Not an optimisation — the research group's explicit
+  condition. Zero rows is the entire opt-out mechanism; there is no global toggle.
+- **All LLM calls go through OpenRouter** via `backend/utils/llm_client.py`. Model ids are
+  provider-prefixed (`openai/gpt-4o-2024-08-06`) — the bare OpenAI ids do not resolve there.
+  Reasoning effort is passed as `extra_body={"reasoning": {"effort": ...}}`, OpenRouter's unified
+  parameter. There is **no fallback** to the OpenAI API: the OpenRouter key carries
+  zero-data-retention and the direct key does not, so a silent switch would change the retention
+  posture unnoticed.
+- **The Oracle must rate the case the learner sees.** `check_content_parity()` blocks the panel
+  when the structured record and `case_details.content` have diverged — by a hand-edit
+  (`render_detached`) or by an in-place update (`content_drift`). Not overridable.
+- **Migration `0003_final_orders_and_panels` lives in `direct-sim`**, which owns the shared
+  database's schema. This app probes with `final_orders_schema_ready()` and degrades to 503 rather
+  than running DDL. That probe is deliberately separate from `authoring_schema_ready()`, so a
+  missing 0003 does not also disable framework/LR persistence.
+- **The rating stem is the measurement instrument.** Changing it invalidates every distribution
+  generated under the old wording, so both versions are held in `backend/utils/oracle_stems.py` and
+  stamped onto each run. Do not inline stem text anywhere else — render it from the registry.
 
 ## Common Pitfalls
 

@@ -114,19 +114,46 @@ invisible. A high rate means layer 1 is not working and the orientation copy nee
 An LLM pass marks residual candidates for human review. It does not delete. Silent deletion of a
 false positive is unrecoverable and a transcript is the primary research artifact.
 
-## 4. Voice mode — the larger exposure
+## 4. Voice mode
 
 Voice sends audio to a third party. **Retained audio of a student's voice is identifying
-regardless of transcript hygiene**, and is a bigger exposure than anything in the text pipeline.
+regardless of transcript hygiene**, and would be a bigger exposure than anything in the text
+pipeline.
 
-Before voice mode is used with real students:
+**Resolved 2026-07-29: ElevenLabs does not retain audio for this account** (confirmed by Cory).
+That closes what was the largest open privacy risk in the system.
 
-- Verify the vendor's audio retention settings and disable retention where possible.
-- Confirm what the data processing agreement says about retention and training use.
-- Apply the same transcript scrubbing to returned voice transcripts — they are text by the time
-  they reach us and go through the identical pipeline.
+Two things it does not close:
 
-This is an open item, not a solved one.
+- **Account-level settings can change.** Retention is a configuration, not a property of the
+  vendor. It is worth a periodic re-check and worth capturing in writing rather than as a verbal
+  confirmation, because "we checked once in July" is not an answer to an IRB question asked in
+  March.
+- **Returned transcripts are still text.** Voice transcripts come back through
+  `getElevenLabsTranscript` and go through the identical scrubbing pipeline as typed ones. No
+  audio retention does not mean no transcript exposure.
+
+Corroborating detail found 2026-07-30: `direct-sim/backend/elevenlabs_client.create_agent()` also
+sets per-agent privacy settings — `record_voice: false`, `retention_days: 0`, `delete_audio: true`,
+`apply_to_existing_conversations: true`. So retention is off at both the account level and on every
+agent this system creates. That block is currently a Python dict rather than reviewable
+configuration; see the CLI note in `direct-sim/ToDos.md`.
+
+- [x] Vendor audio retention verified — no retention on this account (2026-07-29), and per-agent
+      settings independently disable recording and audio retention
+- [ ] Retention posture captured in writing in the data processing agreement
+- [ ] Same transcript scrubbing applied to returned voice transcripts
+
+## 4a. LLM provider retention
+
+All generator LLM calls route through **OpenRouter** on a dedicated key with **zero data retention
+enabled** (confirmed 2026-07-30). This covers case generation, Final Order proposals, and the
+Oracle panel.
+
+`backend/utils/llm_client.py` deliberately refuses to fall back to the direct OpenAI API when
+`OPENROUTER_API_KEY` is missing. The direct key does not carry that retention setting, so a
+fallback would silently change the retention posture of case content at the moment a deploy was
+misconfigured — the moment least likely to be noticed. Missing configuration raises instead.
 
 ## 5. Analytic exports
 
@@ -144,11 +171,19 @@ Export rules:
 
 ## 6. Process items
 
-Cheap now, painful later:
+**Resolved 2026-07-29.** UNMC holds IRB approval and is the sole source of student identities,
+which never enter our pipeline. Students are reinforced not to use their names, which reinforces
+the "Dr. X" convention in §3 layer 1 from the institutional side rather than only from the UI.
 
-- [ ] Written data-use agreement with UNMC recording that we never receive the key
-- [ ] IRB determination **in writing before collection**, if publication is intended — the
-      educational-QI framing will likely land as exempt or not-human-subjects, but obtaining it
-      retroactively is a well-known way to lose a dataset
+This is the arrangement ADR-008 was written against, now confirmed rather than assumed: the code
+that maps a submission code to a student exists only at UNMC, and we hold no copy.
+
+- [x] IRB approval — held by UNMC (2026-07-29)
+- [x] Identity source — UNMC only; identities do not enter our pipeline
+- [x] Vendor audio retention verified — no retention on this account (§4)
+- [ ] Written data-use agreement recording that we never receive the key. Still worth doing: the
+      IRB approval and the DUA answer different questions, and "we never receive the key" is the
+      claim that makes our data coded rather than identifiable
+- [ ] Confirm in writing which IRB protocol covers this and whether our role is listed, since a
+      determination that does not name the data flow is thin cover for a publication
 - [ ] Retention and deletion policy, defined per case version
-- [ ] Vendor audio retention verified and documented (§4)

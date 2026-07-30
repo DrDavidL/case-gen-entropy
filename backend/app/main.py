@@ -6,7 +6,7 @@ import uuid
 
 import redis
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from sqlalchemy.exc import OperationalError
@@ -21,6 +21,7 @@ from backend.models.database import (
     SimReadyBase,
     authoring_schema_ready,
     engine,
+    final_orders_schema_ready,
     get_db,
     get_sim_ready_db,
     sim_ready_engine,
@@ -29,6 +30,9 @@ from backend.models.editing_schemas import (
     CaseEditRequest,
     CasePreviewResponse,
     CaseSaveRequest,
+    FinalOrdersUpdateRequest,
+    OracleRunRequest,
+    ProposeFinalOrdersRequest,
     RegenerateLRRequest,
     RegenerateLRResponse,
     SessionData,
@@ -48,10 +52,12 @@ from backend.models.structured_outputs import (
     DiagnosticTierStructured,
     ProbabilityEntry,
 )
+from backend.utils import final_orders_store, oracle_service, oracle_stems, panel_roster
 from backend.utils.auth import verify_credentials
 from backend.utils.authoring_store import load_analysis, persist_case_version
 from backend.utils.build_info import get_build_info
 from backend.utils.llm_service import LLMService
+from backend.utils.panel_runner import describe_settings
 from backend.utils.sim_ready_transform import (
     build_default_custom_evaluation,
     build_default_custom_input,
@@ -86,14 +92,22 @@ Base.metadata.create_all(bind=engine)
 # tables rather than creating them, so there is exactly one source of truth for the schema
 # and no race between the two apps at startup.
 AUTHORING_ENABLED = False
+# Probed separately from AUTHORING_ENABLED: a deploy carrying migration 0002 but not 0003
+# must keep persisting framework and LR data, and only lose Final Orders / Oracle.
+FINAL_ORDERS_ENABLED = False
 if sim_ready_engine is not None:
     SimReadyBase.metadata.create_all(
         bind=sim_ready_engine,
         tables=[CaseDetailSimReady.__table__],
     )
     AUTHORING_ENABLED = authoring_schema_ready(sim_ready_engine)
+    FINAL_ORDERS_ENABLED = AUTHORING_ENABLED and final_orders_schema_ready(
+        sim_ready_engine
+    )
     logger.info(
-        "Authoring persistence: %s", "enabled" if AUTHORING_ENABLED else "DISABLED"
+        "Authoring persistence: %s | Final Orders + Oracle: %s",
+        "enabled" if AUTHORING_ENABLED else "DISABLED",
+        "enabled" if FINAL_ORDERS_ENABLED else "DISABLED",
     )
 
 _build = get_build_info()
@@ -153,6 +167,7 @@ async def root():
         "message": "Medical Case Generator API",
         "build": get_build_info(),
         "authoring_persistence": AUTHORING_ENABLED,
+        "final_orders": FINAL_ORDERS_ENABLED,
     }
 
 
@@ -305,6 +320,9 @@ async def health_check():
         "environment": env_vars,
         "redis": redis_status,
         "authoring_persistence": AUTHORING_ENABLED,
+        "final_orders": FINAL_ORDERS_ENABLED,
+        "oracle_settings": describe_settings(),
+        "oracle_stem_version": oracle_stems.DEFAULT_STEM_VERSION,
     }
 
 
@@ -461,6 +479,7 @@ async def get_session_data(
 @app.post("/finalize-case")
 async def finalize_case(
     save_request: CaseSaveRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     username: str = Depends(verify_credentials),
 ):
@@ -527,6 +546,8 @@ async def finalize_case(
                 # Previously this analysis was generated and thrown away on this path
                 # (ADR-001). Failures here must not fail the case save, which is
                 # already committed — log loudly and continue.
+                saved_version_id: int | None = None
+                final_orders_saved = 0
                 if AUTHORING_ENABLED:
                     try:
                         version = persist_case_version(
@@ -541,7 +562,9 @@ async def finalize_case(
                             rendered_content=rendered_content,
                             render_detached=save_request.rendered_content is not None,
                             case_detail_id=saved_case_id,
+                            oracle_specialty=save_request.oracle_specialty,
                         )
+                        saved_version_id = version.id
                         logger.info(
                             "Authoring record saved: case_version=%d (family=%d v%d), "
                             "%d tiers, %d LRs",
@@ -558,6 +581,35 @@ async def finalize_case(
                             "the case itself was saved",
                             saved_case_id,
                         )
+
+                # Final Orders are optional. Zero of them is the normal case and means
+                # the case carries no script concordance item (ADR-014). Failures here
+                # must not fail the save, which is already committed.
+                if (
+                    saved_version_id is not None
+                    and FINAL_ORDERS_ENABLED
+                    and save_request.final_orders
+                ):
+                    try:
+                        rows = final_orders_store.replace_final_orders(
+                            sim_db,
+                            saved_version_id,
+                            [fo.model_dump() for fo in save_request.final_orders],
+                        )
+                        final_orders_saved = len(rows)
+                    except Exception:
+                        sim_db.rollback()
+                        logger.exception(
+                            "Failed to persist Final Orders for case_version=%d; the "
+                            "case itself was saved",
+                            saved_version_id,
+                        )
+                elif save_request.final_orders and not FINAL_ORDERS_ENABLED:
+                    logger.error(
+                        "%d Final Order(s) submitted but the schema is unavailable "
+                        "(migration 0003 not applied); they were NOT saved",
+                        len(save_request.final_orders),
+                    )
             finally:
                 sim_db.close()
 
@@ -566,11 +618,32 @@ async def finalize_case(
                 "Sim-ready case finalized: id=%d, session cleaned up", saved_case_id
             )
 
-            return SimReadyCaseResponse(
+            # The panel takes 3-5 minutes, so it cannot run inside this request. It also
+            # only runs at finalization, never at preview: authors regenerate previews
+            # repeatedly while drafting and each one would otherwise trigger 75 calls.
+            oracle_started = False
+            if save_request.run_oracle and final_orders_saved and saved_version_id:
+                background_tasks.add_task(
+                    oracle_service.run_oracle_for_case_version, saved_version_id
+                )
+                oracle_started = True
+                logger.info(
+                    "Oracle panel queued for case_version=%d (%d order(s))",
+                    saved_version_id,
+                    final_orders_saved,
+                )
+
+            response = SimReadyCaseResponse(
                 case_id=saved_case_id,
                 saved_name=saved_case_name,
                 output_format="sim_ready",
             )
+            return {
+                **response.model_dump(),
+                "case_version_id": saved_version_id,
+                "final_orders_saved": final_orders_saved,
+                "oracle_started": oracle_started,
+            }
         else:
             # --- Beta path: save to cases/frameworks/LRs tables (original behavior) ---
             def save_case():
@@ -1201,6 +1274,379 @@ async def update_sim_ready_case(
             "allow_orders": case.allow_orders,
             "learner_tasks": case.learner_tasks,
         }
+    finally:
+        sim_db.close()
+
+
+# --- Final Orders (SCT) + Oracle panel ---
+#
+# A case with no Final Orders has no script concordance item and gets no Oracle panel.
+# That is the whole opt-out mechanism and it is deliberate (ADR-014).
+
+
+def _require_final_orders() -> None:
+    if not FINAL_ORDERS_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="Final Orders are unavailable: the authoring schema is missing "
+            "case_final_orders / panel_runs / panel_ratings. Run 'alembic upgrade head' "
+            "in the direct-sim repo.",
+        )
+
+
+def _resolve_case_version(sim_db: Session, case_id: int):
+    """The latest case version behind a simulator-facing case row, or 404."""
+    version = final_orders_store.latest_version_for_case_detail(sim_db, case_id)
+    if version is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No authoring record for this case. Cases finalized before the "
+            "authoring record existed cannot carry Final Orders until they are "
+            "re-saved.",
+        )
+    return version
+
+
+@app.post("/final-orders/propose")
+async def propose_final_orders(
+    request: ProposeFinalOrdersRequest, username: str = Depends(verify_credentials)
+):
+    """Propose candidate Final Orders. Writes nothing.
+
+    Candidates are suggestions; the author decides. Anything accepted is stored with
+    provenance `llm_suggested_accepted` so a reviewer can test whether model-proposed
+    orders behave differently from author-written ones (ADR-004).
+    """
+    case_details_raw = request.case_details
+    primary_diagnosis = request.primary_diagnosis or ""
+
+    if case_details_raw is None and request.session_id:
+        raw = redis_client.get(f"session:{request.session_id}")
+        if not raw:
+            raise HTTPException(status_code=404, detail="Session not found or expired")
+        session_data = SessionData.model_validate_json(raw)
+        case_details_raw = session_data.case_details
+        primary_diagnosis = (
+            primary_diagnosis or session_data.original_input.primary_diagnosis
+        )
+
+    if not case_details_raw:
+        raise HTTPException(
+            status_code=400, detail="Provide either session_id or case_details"
+        )
+
+    try:
+        # Sim-ready records carry the expanded shape; adapt to the common one the way
+        # the framework and LR calls already do.
+        if (
+            "diagnostic_workup" in case_details_raw
+            and "presentation" not in case_details_raw
+        ):
+            case_struct = CaseDetailsStructured(
+                presentation=case_details_raw.get("paragraph_summary", ""),
+                patient_personality=(
+                    (case_details_raw.get("patient_approach") or {}).get(
+                        "communication_style", ""
+                    )
+                ),
+                history_questions=case_details_raw.get("history_questions", []),
+                physical_exam_findings=case_details_raw.get(
+                    "physical_exam_findings", []
+                ),
+                diagnostic_workup=case_details_raw.get("diagnostic_workup", []),
+            )
+        else:
+            case_struct = CaseDetailsStructured.model_validate(case_details_raw)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid case_details structure: {e}"
+        ) from e
+
+    try:
+        proposed = await llm_service.propose_final_orders_async(
+            case_struct, primary_diagnosis, request.max_candidates
+        )
+    except Exception as e:
+        logger.exception("Final Order proposal failed")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to propose Final Orders: {e}"
+        ) from e
+
+    stem = oracle_stems.get_stem()
+    candidates = []
+    for candidate in proposed.candidates:
+        action = candidate.stem_action or oracle_stems.default_action_phrase(
+            candidate.order_text
+        )
+        candidates.append(
+            {
+                **candidate.model_dump(),
+                # The rendered item is returned so the author reads the exact sentence a
+                # learner will read before accepting the order, rather than after.
+                "learner_item_preview": oracle_stems.render_item(
+                    action, audience="learner", stem_version=stem.version
+                ),
+                "oracle_item_preview": oracle_stems.render_item(
+                    action, audience="oracle", stem_version=stem.version
+                ),
+            }
+        )
+
+    logger.info(
+        "Proposed %d Final Order candidate(s) for %s", len(candidates), username
+    )
+    return {
+        "candidates": candidates,
+        "stem_version": stem.version,
+        "stem_label": stem.label,
+        "max_candidates": request.max_candidates,
+    }
+
+
+@app.get("/oracle/stems")
+async def get_oracle_stems():
+    """Every registered rating stem, rendered side by side.
+
+    Exists so "show me the proposed change before we adopt it" is answerable from the
+    code that will actually run rather than from a document that can drift away from it.
+    """
+    return {
+        "default_stem_version": oracle_stems.DEFAULT_STEM_VERSION,
+        "stems": {
+            version: {
+                **stem.model_dump(),
+                "learner_example": oracle_stems.render_item(
+                    "ordering a brain MRI", audience="learner", stem_version=version
+                ),
+                "oracle_example": oracle_stems.render_item(
+                    "ordering a brain MRI", audience="oracle", stem_version=version
+                ),
+            }
+            for version, stem in oracle_stems.STEMS.items()
+        },
+        "comparison_markdown": oracle_stems.comparison_table(),
+    }
+
+
+@app.get("/oracle/roster")
+async def get_oracle_roster(specialty: str | None = None):
+    """The versioned panel roster and provider settings a run would use."""
+    roster = panel_roster.build_roster(specialty)
+    return {
+        "panel_roster_version": panel_roster.ROSTER_VERSION,
+        "panel_size": len(roster),
+        "specialty_seat_index": panel_roster.SPECIALTY_SEAT_INDEX,
+        "resolved_specialty": specialty or panel_roster.DEFAULT_SPECIALTY,
+        "panelists": [
+            {"index": p.index, "persona_id": p.persona_id, "role": p.role}
+            for p in roster
+        ],
+        "settings": describe_settings(),
+    }
+
+
+@app.get("/sim-ready/case/{case_id}/final-orders")
+async def get_case_final_orders(case_id: int):
+    """Final Orders for a case, resolved through its latest version.
+
+    Unauthenticated because the simulator reads this on every case load. It returns
+    author-written configuration, no learner data and no diagnosis.
+    """
+    _require_final_orders()
+    sim_db = next(get_sim_ready_db())
+    try:
+        version, orders = final_orders_store.load_final_orders_for_case_detail(
+            sim_db, case_id
+        )
+        if version is None:
+            # Not a 404: a case with no authoring record simply has no Final Orders, and
+            # the simulator must treat that as "behave exactly as before".
+            return {
+                "case_id": case_id,
+                "case_version_id": None,
+                "final_orders": [],
+                "suppression_terms": [],
+            }
+        payload = [final_orders_store.serialize_final_order(o) for o in orders]
+        return {
+            "case_id": case_id,
+            "case_version_id": version.id,
+            "oracle_specialty": version.oracle_specialty,
+            "final_orders": payload,
+            # Flattened for the simulator's pre-model interception: every string that
+            # should short-circuit before any LLM call sees it.
+            "suppression_terms": [
+                {
+                    "final_order_id": o.id,
+                    "terms": final_orders_store.suppression_terms(o),
+                    "message": o.suppression_message,
+                }
+                for o in orders
+                if o.suppress_results
+            ],
+        }
+    finally:
+        sim_db.close()
+
+
+@app.put("/sim-ready/case/{case_id}/final-orders")
+async def update_case_final_orders(
+    case_id: int,
+    update: FinalOrdersUpdateRequest,
+    background_tasks: BackgroundTasks,
+    username: str = Depends(verify_credentials),
+):
+    """Replace the Final Orders on a case's latest version.
+
+    Editing was requested from the start rather than deferred: post-finalization editing
+    was the top item from the March feedback, and shipping Final Orders that cannot be
+    edited would immediately reopen it.
+    """
+    _require_final_orders()
+    sim_db = next(get_sim_ready_db())
+    try:
+        version = _resolve_case_version(sim_db, case_id)
+
+        if update.oracle_specialty is not None:
+            version.oracle_specialty = update.oracle_specialty.strip() or None
+            sim_db.commit()
+
+        try:
+            rows = final_orders_store.replace_final_orders(
+                sim_db,
+                version.id,
+                [fo.model_dump() for fo in update.final_orders],
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        oracle_started = False
+        if update.run_oracle and rows:
+            background_tasks.add_task(
+                oracle_service.run_oracle_for_case_version, version.id
+            )
+            oracle_started = True
+
+        logger.info(
+            "Final Orders updated by %s: case=%d version=%d count=%d",
+            username,
+            case_id,
+            version.id,
+            len(rows),
+        )
+        return {
+            "case_id": case_id,
+            "case_version_id": version.id,
+            "oracle_specialty": version.oracle_specialty,
+            "final_orders": [final_orders_store.serialize_final_order(r) for r in rows],
+            "oracle_started": oracle_started,
+        }
+    finally:
+        sim_db.close()
+
+
+@app.get("/sim-ready/case/{case_id}/oracle/preflight")
+async def oracle_preflight(case_id: int, username: str = Depends(verify_credentials)):
+    """Everything checkable before spending a model call.
+
+    Shows the author the exact blinded context the panel will see, the leak-audit
+    verdict, the rendered items, and the roster. `ready: false` with reason
+    `diagnosis_leak` is blocking — a warning here would be dismissed, and the resulting
+    distribution would look valid while measuring nothing.
+    """
+    _require_final_orders()
+    sim_db = next(get_sim_ready_db())
+    try:
+        version = _resolve_case_version(sim_db, case_id)
+        result = oracle_service.preflight(sim_db, version.id)
+        return {"case_id": case_id, **result}
+    finally:
+        sim_db.close()
+
+
+@app.post("/sim-ready/case/{case_id}/oracle/run")
+async def run_oracle(
+    case_id: int,
+    background_tasks: BackgroundTasks,
+    request: OracleRunRequest | None = None,
+    username: str = Depends(verify_credentials),
+):
+    """Queue the Oracle panel for every Final Order on a case.
+
+    Returns immediately with runs pending; poll `GET .../oracle`. Refuses when the case
+    has no Final Orders and when the leak audit fails, so neither condition can be
+    discovered after 75 calls have been spent.
+
+    A failing leak audit can be overridden only by stating a reason, which is stored on
+    every run it produces. That exists because the audit has legitimate false positives —
+    "CVA" under Family History is the father's history, not this patient's diagnosis —
+    and the alternative to a recorded override is an author who stops trusting the check.
+    """
+    _require_final_orders()
+    override = (request.leak_override_reason or "").strip() if request else ""
+
+    sim_db = next(get_sim_ready_db())
+    try:
+        version = _resolve_case_version(sim_db, case_id)
+        preflight = oracle_service.preflight(sim_db, version.id)
+        # Only a leak hit is overridable. Content drift means the panel would rate a case
+        # the learner will not see, and no stated reason makes that measurement valid.
+        blocked_by_leak = preflight.get("reason") == "diagnosis_leak"
+
+        if not preflight.get("ready") and not (blocked_by_leak and override):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "reason": preflight.get("reason"),
+                    "message": preflight.get(
+                        "message", "The Oracle cannot run for this case yet."
+                    ),
+                    "leak_audit": preflight.get("leak_audit"),
+                    "content_parity": preflight.get("content_parity"),
+                    "override_available": blocked_by_leak,
+                },
+            )
+        version_id = version.id
+        estimated = preflight.get("estimated_calls")
+    finally:
+        sim_db.close()
+
+    background_tasks.add_task(
+        oracle_service.run_oracle_for_case_version,
+        version_id,
+        leak_override_reason=override or None,
+    )
+    logger.info(
+        "Oracle panel queued by %s: case=%d version=%d (~%s calls)%s",
+        username,
+        case_id,
+        version_id,
+        estimated,
+        " WITH LEAK OVERRIDE" if override else "",
+    )
+    return {
+        "case_id": case_id,
+        "case_version_id": version_id,
+        "status": "queued",
+        "estimated_calls": estimated,
+        "leak_override_applied": bool(override),
+        "settings": describe_settings(),
+    }
+
+
+@app.get("/sim-ready/case/{case_id}/oracle")
+async def get_case_oracle(case_id: int):
+    """Current Oracle distributions and item-quality flags for a case.
+
+    Aggregates are recomputed from the per-rating rows on every read, so the scoring rule
+    can change without regenerating any model output.
+    """
+    _require_final_orders()
+    sim_db = next(get_sim_ready_db())
+    try:
+        version = _resolve_case_version(sim_db, case_id)
+        result = oracle_service.load_oracle_for_case_version(sim_db, version.id)
+        return {"case_id": case_id, **result}
     finally:
         sim_db.close()
 

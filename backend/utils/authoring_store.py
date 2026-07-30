@@ -83,6 +83,7 @@ def persist_case_version(
     case_detail_id: int | None = None,
     family_id: int | None = None,
     parent_version_id: int | None = None,
+    oracle_specialty: str | None = None,
 ) -> CaseVersion:
     """Write one published case version with its full analysis. Commits."""
     family = get_or_create_family(db, title, family_id)
@@ -100,6 +101,7 @@ def persist_case_version(
         parent_version_id=parent_version_id,
         case_detail_id=case_detail_id,
         output_format=output_format,
+        oracle_specialty=(oracle_specialty or None),
         # Naive on purpose: the DateTime columns are naive and every other default in
         # backend/models/database.py uses utcnow(). A tz-aware value here alone would
         # mix naive and aware datetimes in the same table.

@@ -305,3 +305,69 @@ class SimReadyCaseDetailsStructured(BaseModel):
     diagnostic_workup: list[DiagnosticTest] = Field(
         description="List of diagnostic tests and rationales for LR matrix generation"
     )
+
+
+# ---------------------------------------------------------------------------
+# Final Orders (SCT) and the Oracle panel
+# ---------------------------------------------------------------------------
+
+
+class FinalOrderCandidateStructured(BaseModel):
+    """One proposed Final Order. A suggestion only — nothing is written until the author
+    explicitly accepts it (ADR-004)."""
+
+    order_text: str = Field(
+        description=(
+            "The clinical action as a short label an author would recognise, e.g. "
+            "'Brain MRI', 'Echocardiogram', 'Stroke team activation'. No leading verb."
+        )
+    )
+    stem_action: str = Field(
+        description=(
+            "The same action as a gerund phrase that reads naturally inside the rating "
+            "stem, e.g. 'ordering a brain MRI', 'activating the stroke team'. It is "
+            "inserted into the sentence '... , <stem_action> now would be:'"
+        )
+    )
+    debatability: str = Field(
+        description=(
+            "Why reasonable clinicians would disagree about the appropriateness of this "
+            "action in THIS case. An action everyone agrees on makes a useless item."
+        )
+    )
+    suggested_synonyms: list[str] = Field(
+        description=(
+            "Alternate phrasings a learner might type when ordering this, used by the "
+            "simulator to suppress the result. Be specific: for a brain MRI, 'MRI brain' "
+            "and 'MR brain' but NOT bare 'imaging', which would suppress unrelated orders."
+        )
+    )
+
+
+class FinalOrderCandidatesStructured(BaseModel):
+    candidates: list[FinalOrderCandidateStructured] = Field(
+        description="Three to five candidate Final Orders, most debatable first"
+    )
+
+
+class OracleRatingStructured(BaseModel):
+    """One panelist's response.
+
+    `rating` is a plain int rather than a constrained one on purpose: OpenAI strict
+    structured outputs reject `minimum`/`maximum`, and a numeric enum is not reliably
+    supported across model versions. The scale is stated in the item, and the runner
+    records anything outside -2..+2 as a parse error rather than coercing it.
+    """
+
+    rating: int = Field(
+        description="Appropriateness rating. Exactly one of: -2, -1, 0, 1, 2"
+    )
+    reasoning: str = Field(
+        description="Two to three sentences justifying the rating from your perspective"
+    )
+    top_diagnostic_concerns: list[str] = Field(
+        description=(
+            "The two or three diagnoses you are most concerned about in this patient, "
+            "most concerning first"
+        )
+    )

@@ -179,8 +179,14 @@ authoring data, so the "we hold no key" claim is demonstrable rather than assert
 data-use agreement records that we never receive the key.
 
 **Consequences.** Free text, not the schema, is the live exposure — see ADR-009. Analytic exports
-need coarsened timestamps and small-cell suppression. IRB determination should be obtained in
-writing *before* collection if publication is intended.
+need coarsened timestamps and small-cell suppression.
+
+**Confirmed 2026-07-29.** UNMC holds IRB approval and is the sole source of student identities,
+which never enter our pipeline; students are reinforced not to use their names. This is the
+arrangement the ADR was written against, now confirmed rather than assumed. Two items remain
+because the IRB approval and the data-use agreement answer different questions: get in writing
+which protocol covers this and whether our role is named, and record in the DUA that we never
+receive the key — that clause is what makes the data we hold coded rather than identifiable.
 
 **See:** `docs/privacy-data-handling.md`
 
@@ -215,9 +221,11 @@ told me your name. Who are you?" — as part of its professionalism feedback. Th
 contradicted the goal and has been changed to "you haven't introduced yourself. Are you the
 doctor?"
 
-**Open risk.** Voice mode sends audio to a third party. Retained audio of a student's voice is
-identifying regardless of transcript hygiene, and is a larger exposure than the text. Vendor
-retention settings must be verified.
+**Open risk — closed 2026-07-29.** Voice mode sends audio to a third party, and retained audio of
+a student's voice is identifying regardless of transcript hygiene. **ElevenLabs does not retain
+audio for this account** (confirmed by Cory). Retention is an account setting rather than a
+property of the vendor, so it is worth re-checking periodically and worth having in writing in the
+data processing agreement.
 
 **See:** `docs/privacy-data-handling.md`
 
@@ -310,6 +318,168 @@ unstamped process is a fact worth seeing, not something to paper over.
 **Consequences.** Anything believed shipped between 2026-03-10 and 2026-07-28 needs
 re-verifying once a real deploy lands. `git rev-parse` marks a dirty working tree as
 `<sha>-dirty`, since `az acr build` uploads the working directory rather than a git ref.
+
+---
+
+## ADR-014 — Research-group answers on the Final Orders / Oracle design.
+
+**Status:** ACCEPTED (2026-07-29) · BUILT · Source: Cory Rohlfsen's comments on
+`Status_and_Decisions_Needed`, plus David's notes the same day
+
+**Context.** Section 3 of the status memo put nine questions to the group with a default for each.
+Five came back with answers, and three of them changed the design rather than confirming it.
+
+**Decisions.**
+
+**1. The Oracle is for Final Orders only, and only when a case has them.** "The 15-role Oracle
+panel should not be used for learner rating. If no Final Order is generated for a case, then no
+15-role Oracle panel should be activated." Enforced in code, not by convention: zero
+`case_final_orders` rows means `POST .../oracle/run` refuses with `no_final_orders`, and
+`run_oracle_for_case_version` returns `skipped` rather than running an empty panel. There is no
+global toggle to get wrong.
+
+**2. The panel weighs the cost of commission.** "As long as runs are independent, panel should
+consider costs of co-mission (e.g. brain biopsy comes at a great cost so strength of clinical
+justification must have real weight)." This is now an explicit paragraph in the shared rater
+instruction (`panel_runner.RATER_INSTRUCTION`), tying required justification to the burden of the
+action. Independence was already an invariant — one call per (claim × panelist), never batched —
+and is now also a stated condition of the group's approval, which raises the cost of anyone
+"optimising" it later.
+
+**3. Reasoning effort is `medium`.** "Yes, we don't need highest reasoning possible for this."
+Confirms the reading of "fourth notch, not the highest".
+
+**4. The name stays "Final Orders".** "Key Management Decisions is going to confuse the 3 next
+steps orders panel which is separate." Two distinct instruments that must not be conflated:
+*Final Orders* are authored per case in the generator and rated on a −2..+2 scale; *3 next steps
+in management* is a standard open text box in the simulator, unauthored and ungraded by this
+subsystem. Proposal §4.3 Change 5 is withdrawn.
+
+**5. The specialty seat is generalised.** Roster seat 12 was a fixed otolaryngologist, chosen for
+the planned dizziness cases. It is now "applicable specialty surgeon or subspecialist", set per
+case via `case_versions.oracle_specialty` and recorded per run as `panel_runs.roster_specialty`.
+A case that names no specialty gets a generic reading of that seat rather than a silently
+otolaryngological one. Changed before any run existed, so `ROSTER_VERSION` stays `v1`.
+
+**6. The stem revision is not yet approved.** "If something is being suggested to change what is
+currently in place, then I would want to see those changes first." The revision *is* a change, so
+it is not treated as adopted. Both wordings live in `backend/utils/oracle_stems.py` — `v1_original`
+(Alex's draft) and `v2_revised` (proposal §4.2) — rendered verbatim, selected by
+`ORACLE_STEM_VERSION`, and stamped onto every run as `panel_runs.stem_version`. `GET /oracle/stems`
+renders both side by side from the code that will actually run, so the comparison cannot drift from
+a document. Default is `v2_revised`; switching is one environment variable.
+
+**Consequence, and it is the sharp one:** the stem determines what the panel is asked, so changing
+it invalidates every distribution generated before the change. **No production Oracle panel should
+run until the group confirms the wording.** Nothing is lost by waiting — no case carries Final
+Orders yet.
+
+**Still unanswered:** splitting the panel across two model families (default: single family for
+v1) and scheduling the human validation panel (default: propose alongside the spring review).
+
+**See:** `docs/final-orders-sct.md`, `docs/llm-panels.md`
+
+---
+
+## ADR-015 — Model selection stays global and admin-set; provenance is recorded per run.
+
+**Status:** PROPOSED (2026-07-29) — recommendation, awaiting confirmation
+
+**Context.** The simulator has an admin dashboard for choosing a model per task. The concern
+raised was that an admin change might be lost on redeploy, and the question was whether to move
+model selection into the case record instead.
+
+**The premise does not hold.** `direct-sim/backend/model_settings.py` persists overrides in the
+`model_settings` table and serves them from a 30-second cache. A redeploy restarts the process and
+empties the cache; it does not touch the table. Admin changes already survive deploys.
+
+**Decision (recommended).** Keep model selection global and admin-set. Do **not** move it into the
+case record.
+
+- A case pinned to a model is pinned to a model that will be deprecated. Ten cases authored across
+  a year would carry ten different pins and would need editing one by one when a provider retires
+  a model.
+- The reproducibility need is real but is a *provenance* need, not a *configuration* need. What
+  research requires is knowing which model produced a given artifact, which is satisfied by
+  recording it on the artifact. The Oracle already does this: `panel_runs` stores `model`,
+  `reasoning_effort`, `provider`, `api_surface`, and `prompt_template_version` per run.
+- Per-case model choice also multiplies the test matrix by the number of models, for a benefit no
+  one has asked for.
+
+**Two real defects this did surface, both in the simulator:**
+
+1. `MODEL_OPTIONS` is stale and, worse, **inconsistent with the defaults**. The `assessment` task
+   defaults to `anthropic/claude-opus-4.6`, which is not in `MODEL_OPTIONS` — so the admin dropdown
+   cannot represent the value currently in force, and opening the page and saving would silently
+   change it to whichever option renders first.
+2. **A code default silently takes effect for any task with no database row.** Bumping a default in
+   a deploy changes the model for every unoverridden task, with nothing recording that it happened.
+   The fix is to record the resolved model on the artifact — `transcripts` and `assessments` should
+   carry the model that produced them, the way `panel_runs` does.
+
+**Consequence.** Fixing (1) is a list edit plus a validation that every default appears in
+`MODEL_OPTIONS`. Fixing (2) is two columns. Neither is urgent, and both are cheap now and
+archaeological later.
+
+---
+
+## ADR-016 — All LLM calls route through OpenRouter, with no fallback.
+
+**Status:** ACCEPTED (2026-07-30) · BUILT
+
+**Context.** The generator called the OpenAI API directly while `direct-sim` already used
+OpenRouter. Moving both to one provider gives a single key to manage, access to every model without
+a per-provider integration, and a faster path than an Azure deployment.
+
+**Decision.** `backend/utils/llm_client.py` is the single place the provider is chosen. Both call
+paths — case generation and the Oracle panel — build their client there, so they cannot end up
+pointed at different providers.
+
+**Three consequences worth recording:**
+
+1. **The Oracle moved off the Responses API.** That surface is OpenAI-only. OpenRouter is
+   wire-compatible with Chat Completions, and reasoning effort passes through its unified
+   `reasoning` parameter via `extra_body`. Verified end to end on 2026-07-30: structured outputs
+   parse, effort is accepted, token counts and latency are recorded.
+2. **`gpt-5.6` does not exist.** The design proposal specified it; OpenRouter's catalogue ships the
+   5.6 line as `-luna` / `-sol` / `-terra`. Selected: `openai/gpt-5.6-sol`. This is exactly the
+   class of error the "verify before use" rule exists for — the id was plausible, documented, and
+   wrong.
+3. **No silent fallback to the OpenAI API.** The OpenRouter key carries zero data retention; the
+   direct OpenAI key does not. A fallback triggered by a missing environment variable would quietly
+   change the retention posture of case content at the moment a deploy was misconfigured, which is
+   the moment least likely to be noticed. Missing configuration raises. `LLM_PROVIDER=openai` is
+   available as a deliberate, visible choice.
+
+**Consequence.** `OPENROUTER_API_KEY` must be added to Container Apps secrets before the next
+deploy, or the backend will fail to start. That is the intended behaviour.
+
+---
+
+## ADR-017 — The Oracle refuses to rate a case the learner will not see.
+
+**Status:** ACCEPTED (2026-07-30) · BUILT
+
+**Context.** "Are we sure the Oracle gets the same content as the user?" The answer was no. The
+blinded context is built from `case_versions.content_structured`; the simulator serves
+`case_details.content`. They agree at finalization and diverge afterwards two ways: a hand-edited
+markdown override (`render_detached`, ADR-002), and `PUT /sim-ready/case/{id}` updating the
+simulator row in place without creating a new version — the known gap in `ToDos.md` Phase 1.
+
+Either one means the panel rates a case that no longer exists, and produces a distribution that
+looks entirely valid.
+
+**Decision.** `check_content_parity()` compares the stored rendered projection against the live
+simulator content and blocks the panel on any mismatch, before a single call is spent. Surfaced in
+the preflight panel so the author sees it while authoring rather than after.
+
+**Not overridable, unlike the leak audit.** A leak hit can be a true match with a benign
+explanation — "CVA" under Family History is the father's. Content drift admits no such explanation.
+A stale distribution is worse than a missing one precisely because it will be used.
+
+**Consequence.** Editing a case now blocks its Oracle panel until the case is re-saved as a new
+version. That is a real workflow constraint, and it is the correct one: it surfaces the missing
+"version on edit" work rather than quietly generating data around it.
 
 ---
 
