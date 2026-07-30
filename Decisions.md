@@ -498,6 +498,60 @@ version. That is a real workflow constraint, and it is the correct one: it surfa
 
 ---
 
+## ADR-018 — The Oracle panel spans two model families, targeted at similar personas.
+
+**Status:** ACCEPTED (2026-07-30) · BUILT · Answers open question 6 from the status memo
+
+**Context.** ADR-005 predicted that fifteen personas driven by one model are fifteen draws from
+one posterior. The first live run confirmed it immediately: three EM seats returned `+2/+2/+2` with
+*near-identical wording*, not merely the same conclusion. Persona prompting alone was not producing
+independent raters. Moving to OpenRouter (ADR-016) made a second family a configuration change
+rather than a second integration.
+
+**Decision.** Split the roster across two families, applied **only where personas are genuinely
+similar**:
+
+| Seats | Assignment | Why |
+|---|---|---|
+| 1–5 EM attendings (setting, seniority) | 3 primary, 2 secondary | The cluster that produced identical rationales |
+| 6–7 internist, hospitalist | 1 primary, 1 secondary | Overlapping scope |
+| 8–12 distinct specialists | primary | Roles already differ; holding the model constant keeps differences attributable to the role |
+| 13–14 stewardship vs. risk-averse | **both primary** | These exist to measure a practice-variation axis. Different models here would perfectly confound persona effect with model effect |
+| 15 educator | primary | Distinct role |
+
+Roster bumped to `v2`. Model is recorded **per rating** (`panel_ratings.model`), not only per run,
+since a run now spans two families; `panel_runs.model` names the primary. Aggregation gained a
+`by_model` breakdown so the question the split exists to answer — is the disagreement personas or
+models? — is answerable without an ad-hoc query.
+
+**Model selection, and what the account's privacy policy costs.** Verified against OpenRouter on
+2026-07-30 with structured outputs and reasoning:
+
+| Model | Result |
+|---|---|
+| `anthropic/claude-opus-5` | **400** — ZDR leaves only Bedrock, which rejects the strict schema |
+| `anthropic/claude-opus-4.7` | **400** — same failure, same cause |
+| `anthropic/claude-opus-4.6` | works via Bedrock, ~22s/call |
+| `anthropic/claude-sonnet-5` | works via Azure, ~8s/call — **selected** |
+
+Zero data retention restricts which upstreams OpenRouter may route to, and that is what makes the
+newest Opus models unreachable. **Retention was not relaxed to reach them.** It is a privacy
+control over student-adjacent content; trading it for model quality is the wrong direction.
+
+Sonnet-5 was chosen over the working Opus-4.6 for a research reason as much as a latency one: it is
+the same generation as the primary. A secondary that is materially older confounds "different model
+family" with "worse model", which is exactly the comparison the split exists to make cleanly.
+`ORACLE_MODEL_SECONDARY` switches it.
+
+**Consequences.** Verified end to end on the EM cluster: both families answer, ratings are recorded
+per model, the breakdown computes. **Whether the split adds *rating* variance is still untested** —
+the test item (central HINTS pattern, brain MRI) is clinically unambiguous, and all five seats
+correctly said `+2`. Wording diverged across families and stayed homogeneous within them. A
+genuinely debatable item is needed to answer the real question, which is another reason the
+candidate generator ranks toward debatable actions.
+
+---
+
 ## ADR-011 — Item-level storage for learner responses, aggregates computed on read.
 
 **Status:** ACCEPTED (2026-07-28)

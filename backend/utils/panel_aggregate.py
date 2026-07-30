@@ -61,6 +61,12 @@ class OracleAggregate(BaseModel):
     # credit(k) = count(k) / count(mode) — the standard SCT partial-credit vector.
     sct_credit: dict[str, float]
 
+    # Per-model breakdown. The panel spans two model families (ADR-018), and the open
+    # question the split exists to answer is whether disagreement comes from the personas
+    # or from the models. That is only answerable if the ratings are separable by model,
+    # so the separation is computed here rather than left for an ad-hoc query later.
+    by_model: dict[str, dict[str, Any]]
+
     # Fraction of panelists who named the ground-truth diagnosis among their top
     # concerns. High values mean the case is diagnostically transparent.
     transparency_rate: float | None
@@ -214,6 +220,7 @@ def aggregate_oracle(
     null_outcomes: dict[str, int] = {}
     values: list[int] = []
     transparency_hits = 0
+    per_model: dict[str, list[int]] = {}
 
     for row in ratings:
         status = row.get("status") or "ok"
@@ -227,8 +234,21 @@ def aggregate_oracle(
 
         histogram[rating] += 1
         values.append(rating)
+        per_model.setdefault(row.get("model") or "unknown", []).append(rating)
         if _names_ground_truth(row.get("top_concerns"), primary_diagnosis):
             transparency_hits += 1
+
+    by_model = {
+        model: {
+            "n": len(ratings_for_model),
+            "mean": round(sum(ratings_for_model) / len(ratings_for_model), 4),
+            "histogram": {
+                str(bin_): ratings_for_model.count(bin_) for bin_ in RATING_BINS
+            },
+        }
+        for model, ratings_for_model in sorted(per_model.items())
+        if ratings_for_model
+    }
 
     realized_n = len(values)
 
@@ -246,6 +266,7 @@ def aggregate_oracle(
             entropy=None,
             normalized_entropy=None,
             sct_credit={str(k): 0.0 for k in histogram},
+            by_model={},
             transparency_rate=None,
             flags=_flags(0, {}, None, None, None, None),
         )
@@ -288,6 +309,7 @@ def aggregate_oracle(
         entropy=round(entropy, 4),
         normalized_entropy=round(entropy / MAX_ENTROPY, 4),
         sct_credit=sct_credit,
+        by_model=by_model,
         transparency_rate=round(transparency_rate, 4)
         if transparency_rate is not None
         else None,

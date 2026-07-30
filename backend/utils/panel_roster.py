@@ -17,7 +17,40 @@ import os
 
 from pydantic import BaseModel
 
-ROSTER_VERSION = "v1"
+ROSTER_VERSION = "v2"
+
+# --- Model families -------------------------------------------------------
+#
+# v2 splits the panel across two model families (ADR-018). Fifteen personas driven by one
+# model share that model's priors, and the first live run showed it: three EM seats
+# returned identical ratings with near-identical *wording*, not merely the same
+# conclusion. Persona prompting alone was not producing independent raters.
+#
+# The split is applied where personas are genuinely similar and left alone where they are
+# not, because a model difference between two seats that are meant to contrast would
+# confound the contrast with a provider effect.
+#
+# Anthropic candidates tested against this account on 2026-07-30, structured outputs plus
+# reasoning, under its zero-data-retention policy. ZDR narrows which upstreams OpenRouter
+# may route to, and the survivors do not all accept a strict response schema:
+#
+#   anthropic/claude-opus-5     400 — routed to Bedrock, "output_config.format:
+#                                     Extra inputs are not permitted". Pinning or
+#                                     excluding providers leaves no eligible endpoint.
+#   anthropic/claude-opus-4.7   400 — same failure, same cause.
+#   anthropic/claude-opus-4.6   works via Bedrock, ~22s per call.
+#   anthropic/claude-sonnet-5   works via Azure, ~8s per call.  <- default
+#
+# Retention was not relaxed to reach a better model. It is a privacy control over
+# student-adjacent content, and trading it for model quality is the wrong direction.
+#
+# Sonnet-5 is the default over the working Opus for a research reason as much as a speed
+# one: it is the same generation as the primary. A secondary that is materially weaker or
+# older confounds "different model family" with "worse model", which is precisely the
+# comparison the split exists to make cleanly. To use Opus anyway:
+#   ORACLE_MODEL_SECONDARY=anthropic/claude-opus-4.6
+MODEL_PRIMARY = os.getenv("ORACLE_MODEL_PRIMARY", "openai/gpt-5.6-sol")
+MODEL_SECONDARY = os.getenv("ORACLE_MODEL_SECONDARY", "anthropic/claude-sonnet-5")
 
 # The applicable-subspecialist seat. Cory's 2026-07-29 review asked that the fixed
 # otolaryngologist seat be generalised, since the relevant surgeon or subspecialist
@@ -30,11 +63,27 @@ DEFAULT_SPECIALTY = os.getenv(
 SPECIALTY_SEAT_INDEX = 12
 
 
+# Seats whose personas are near-duplicates of a same-specialty neighbour, and which
+# therefore get the secondary family. Everything else stays on the primary.
+#
+#   1-5  five emergency medicine attendings differing only in setting and seniority —
+#        the cluster that produced identical rationales on the first live run
+#   6-7  general internist and hospitalist, overlapping scope
+#
+# Seats 13 and 14 (stewardship vs. risk-averse) are deliberately NOT split. They exist to
+# measure a real practice-variation axis, and giving them different models would make any
+# gap between them uninterpretable — persona effect and model effect would be perfectly
+# confounded. Same reasoning for the distinct specialists at 8-12 and the educator at 15:
+# holding the model constant is what keeps their differences attributable to the role.
+SECONDARY_MODEL_SEATS: frozenset[int] = frozenset({2, 4, 7})
+
+
 class Panelist(BaseModel):
     index: int
     persona_id: str
     role: str
     persona: str
+    model: str
 
     @property
     def persona_hash(self) -> str:
@@ -192,9 +241,25 @@ def build_roster(specialty: str | None = None) -> list[Panelist]:
                 "pre-referral tests actually change what you would do."
             )
         roster.append(
-            Panelist(index=i, persona_id=persona_id, role=role, persona=persona)
+            Panelist(
+                index=i,
+                persona_id=persona_id,
+                role=role,
+                persona=persona,
+                model=(
+                    MODEL_SECONDARY if i in SECONDARY_MODEL_SEATS else MODEL_PRIMARY
+                ),
+            )
         )
     return roster
+
+
+def model_mix(roster: list[Panelist]) -> dict[str, int]:
+    """Seat count per model. Recorded on the run so the split is visible in the data."""
+    mix: dict[str, int] = {}
+    for panelist in roster:
+        mix[panelist.model] = mix.get(panelist.model, 0) + 1
+    return mix
 
 
 PANEL_SIZE = len(_ROSTER)

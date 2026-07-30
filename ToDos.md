@@ -259,7 +259,13 @@ Answered 2026-07-29 by Cory (comments on `Status_and_Decisions_Needed`) — full
       in place, then I would want to see those changes first." Both versions are implemented and
       switchable; send the side-by-side from `GET /oracle/stems` and get a yes or no **before any
       production panel runs**
-- [ ] Split the panel across two model families? Still unanswered; default single family for v1
+- [x] **Split the panel across two model families — yes, done** (David, 2026-07-30). Applied only
+      where personas are similar; seats 13/14 deliberately stay on one model so the
+      stewardship-vs-risk-averse contrast is not confounded `ADR-018`
+- [ ] **Test the split on a genuinely debatable item.** Verified mechanically, but the test item
+      (central HINTS pattern, brain MRI) is clinically unambiguous — all five seats correctly said
+      +2. Wording diverged across families and stayed homogeneous within them, so whether the split
+      adds *rating* variance is still unknown `ADR-018`
 - [ ] Schedule the human validation panel? Still unanswered; default propose alongside the spring
       review
 

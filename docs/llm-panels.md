@@ -145,8 +145,29 @@ omitting it produces falsely tight distributions and makes items look more settl
 This represents real practice variation rather than steering the panel.
 
 `panel_roster_version` is stored per run so a roster change is visible in the data. **Do not edit a
-published roster in place** — add a version. Roster `v1` is what ships; nothing ran under the
-otolaryngology-specific draft.
+published roster in place** — add a version. Roster `v2` is what ships.
+
+### Two model families (ADR-018)
+
+Personas alone did not produce independent raters: the first live run returned `+2/+2/+2` from
+three EM seats with near-identical *wording*. Seats whose personas are near-duplicates of a
+same-specialty neighbour therefore run on a second model family — seats **2, 4, and 7**
+(`anthropic/claude-sonnet-5`); everything else uses `openai/gpt-5.6-sol`.
+
+**Seats 13 and 14 deliberately stay on the same model.** They exist to measure the
+stewardship-versus-defensive axis, and a model difference between them would confound persona
+effect with model effect exactly where the measurement lives. Same reasoning for the distinct
+specialists at 8–12.
+
+Model is recorded **per rating**, not only per run, and `aggregate_oracle` returns a `by_model`
+breakdown — so "is this disagreement personas or models?" is answerable from stored data.
+
+**Not every Anthropic model is reachable here.** Zero data retention on the OpenRouter key
+restricts which upstreams may serve a request, and the survivors do not all accept a strict
+response schema. Verified 2026-07-30: `claude-opus-5` and `claude-opus-4.7` both 400 (routed to
+Bedrock, which rejects the schema); `claude-opus-4.6` works at ~22s/call; `claude-sonnet-5` works
+at ~8s/call. Retention was not relaxed to reach the newer Opus models. Re-verify before changing
+`ORACLE_MODEL_SECONDARY` — provider availability moves.
 
 ## 4a. What every panelist is told
 
@@ -172,7 +193,8 @@ a consensus, since the disagreement is the measurement.
 | Parameter | Value | Env var | Notes |
 |---|---|---|---|
 | Provider | OpenRouter | `LLM_PROVIDER` | `openrouter` (default) or `openai` |
-| Model | `openai/gpt-5.6-sol` | `ORACLE_MODEL` | Verified on OpenRouter 2026-07-30 |
+| Primary model | `openai/gpt-5.6-sol` | `ORACLE_MODEL_PRIMARY` | 12 of 15 seats |
+| Secondary model | `anthropic/claude-sonnet-5` | `ORACLE_MODEL_SECONDARY` | 3 seats, where personas are similar (ADR-018) |
 | Reasoning effort | `medium` | `ORACLE_REASONING_EFFORT` | Confirmed by Cory 2026-07-29 (ADR-014) |
 | Panel size | 15 | — | Roster length |
 | Concurrency | 8 | `ORACLE_CONCURRENCY` | Semaphore |

@@ -485,6 +485,9 @@ class PanelRating(SimReadyBase):
     panelist_index = Column(Integer, nullable=False)
     persona_id = Column(String)
     persona_hash = Column(String)
+    # The model that actually produced this rating. Authoritative: a run spans more than
+    # one family (ADR-018), so `panel_runs.model` names only the primary.
+    model = Column(String)
 
     # Shape varies by item_type: {"rating": int} for the Oracle,
     # {"lr_low": float, "lr_high": float, ...} for LR re-assessment.

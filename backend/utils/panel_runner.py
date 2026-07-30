@@ -31,7 +31,8 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from backend.models.structured_outputs import OracleRatingStructured
-from backend.utils.llm_client import ORACLE_MODEL, build_client, provider_name
+from backend.utils import panel_roster
+from backend.utils.llm_client import build_client, provider_name
 from backend.utils.panel_roster import Panelist
 
 load_dotenv()
@@ -90,6 +91,9 @@ class PanelCallResult(BaseModel):
     panelist_index: int
     persona_id: str
     persona_hash: str
+    # Which model actually answered. Authoritative per rating, because a run now spans
+    # more than one model family (ADR-018) and `panel_runs.model` can only name one.
+    model: str = ""
     value: dict | None = None
     rationale: str | None = None
     top_concerns: list[str] | None = None
@@ -106,14 +110,24 @@ def claim_hash(claim: str) -> str:
 
 
 def describe_settings() -> dict[str, object]:
-    """Report the provider settings a run would use. Surfaced by the status endpoint."""
+    """Report the provider settings a run would use. Surfaced by the status endpoint.
+
+    `model` is the *primary* family. A run now spans two (ADR-018), so the authoritative
+    record of what answered a given item is `panel_ratings.model`, and the seat-by-seat
+    split is in `model_mix`.
+    """
+    roster = panel_roster.build_roster()
     return {
-        "model": ORACLE_MODEL,
+        "model": panel_roster.MODEL_PRIMARY,
+        "model_primary": panel_roster.MODEL_PRIMARY,
+        "model_secondary": panel_roster.MODEL_SECONDARY,
+        "model_mix": panel_roster.model_mix(roster),
         "reasoning_effort": ORACLE_REASONING_EFFORT,
         "provider": provider_name(),
         "api_surface": "chat.completions",
         "concurrency": ORACLE_CONCURRENCY,
         "prompt_template_version": PROMPT_TEMPLATE_VERSION,
+        "panel_roster_version": panel_roster.ROSTER_VERSION,
     }
 
 
@@ -140,6 +154,7 @@ def _rate_once(
         "panelist_index": panelist.index,
         "persona_id": panelist.persona_id,
         "persona_hash": panelist.persona_hash,
+        "model": panelist.model,
     }
 
     last_error: str | None = None
@@ -147,16 +162,22 @@ def _rate_once(
         started = time.monotonic()
         try:
             response = client.beta.chat.completions.parse(
-                model=ORACLE_MODEL,
+                model=panelist.model,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
                 response_format=OracleRatingStructured,
-                # OpenRouter's unified reasoning parameter. Passed via extra_body because
-                # the OpenAI SDK has no field for it on Chat Completions; OpenRouter
-                # translates it to whatever the underlying provider expects.
-                extra_body={"reasoning": {"effort": ORACLE_REASONING_EFFORT}},
+                extra_body={
+                    # OpenRouter's unified reasoning parameter. Passed via extra_body
+                    # because the OpenAI SDK has no field for it on Chat Completions;
+                    # OpenRouter translates it for the underlying provider.
+                    "reasoning": {"effort": ORACLE_REASONING_EFFORT},
+                    # Route only to providers that accept every parameter we sent. Some
+                    # upstreams advertise structured-output support and then reject the
+                    # strict schema, which surfaces as a 400 rather than a fallback.
+                    "provider": {"require_parameters": True},
+                },
             )
             latency_ms = int((time.monotonic() - started) * 1000)
 
@@ -266,10 +287,10 @@ async def run_panel(
     results = await asyncio.gather(*(one(p) for p in roster))
     ok = sum(1 for r in results if r.status == "ok")
     logger.info(
-        "Panel complete: %d/%d usable ratings (model=%s effort=%s)",
+        "Panel complete: %d/%d usable ratings (models=%s effort=%s)",
         ok,
         len(roster),
-        ORACLE_MODEL,
+        panel_roster.model_mix(roster),
         ORACLE_REASONING_EFFORT,
     )
     return list(results)

@@ -174,6 +174,19 @@ if [[ -n "${POSTGRES_URL_SIM_READY:-}" ]]; then
     ENV_VARS="$ENV_VARS POSTGRES_URL_SIM_READY=secretref:postgres-url-sim-ready"
 fi
 
+# OpenRouter is the default LLM provider and the backend refuses to start without this
+# key -- there is no fallback to OPENAI_API_KEY, because that key does not carry the
+# zero-data-retention setting configured on the OpenRouter one (Decisions.md ADR-016).
+# Fail here with a clear message rather than creating an app that crash-loops.
+if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
+    echo "ERROR: OPENROUTER_API_KEY is not set. Add it to .env before deploying."
+    echo "       To use the OpenAI API directly instead, set LLM_PROVIDER=openai --"
+    echo "       note that key does not carry zero data retention."
+    exit 1
+fi
+SECRETS="$SECRETS openrouter-api-key=${OPENROUTER_API_KEY}"
+ENV_VARS="$ENV_VARS OPENROUTER_API_KEY=secretref:openrouter-api-key"
+
 az containerapp create \
     --name ${APP}-backend \
     --resource-group $RESOURCE_GROUP \
