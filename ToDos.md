@@ -10,13 +10,13 @@ Simulator-side work is tracked separately in `../direct-sim/FINAL_ORDERS_TODO.md
 ## Start here — state as of 2026-07-31
 
 **Phases 1 through 3 are live. Phase 4a and 4b are live. `ADR-020` (React SPA) is the active
-workstream, and 4c is next.**
+workstream. Three of Phase 4c's four blockers are done; what remains is the editor itself.**
 
 | | | Verified how |
 |---|---|---|
-| case-gen live build | `642b044` | `GET /` on the backend |
+| case-gen live build | `64ee481` | `GET /` on the backend |
 | direct-sim live build | `389af1c` | `GET /api/version` on **`direct-sim-beta`** |
-| Shared DB revision | `0003_final_orders_and_panels` | queried `alembic_version` directly |
+| Shared DB revision | `0004_panel_run_item_snapshot` | `alembic current` + queried `alembic_version` |
 | `authoring` tables | all 7, including `panel_runs` / `panel_ratings` | queried `information_schema` |
 | Deploy | push to `main` in either repo | both pipelines green at the SHAs above |
 
@@ -35,7 +35,7 @@ workstream, and 4c is next.**
   bump. **Now redundant** — PR #13 does it. It no-ops safely, but disable it at
   <https://claude.ai/code/routines>
 
-### Five failures found on 2026-07-31, all the same shape
+### Six failures found on 2026-07-31, all the same shape
 
 Each is a check that **ran, reported success, and verified the wrong thing.** Same family as
 `ADR-012`'s mutable image tag, which let a four-month-old image serve behind green deploys. When
@@ -71,6 +71,20 @@ touching any gate, prove it fails on a deliberate defect before trusting that it
    overridden to do ordinary work stops being a gate — the same reasoning already written into the
    npm section of `~/.claude/hooks/pre-push-checks.sh`. Fail closed on a *missing binary*, and
    carry an explicit, commented `--ignore-vuln` for advisories with no available fix.
+
+6. **`web/src/lib/api.ts` was never committed.** `.gitignore` carried a stock Python `lib/` rule.
+   Unanchored, that matches at *any* depth, so it swallowed all of `web/src/lib/` — including
+   `api.ts`, the SPA's entire backend client. Phase 4b therefore shipped an SPA that cannot build
+   from a fresh clone: `App.tsx` → pages → `./lib/api`, a module not in the repo. It worked
+   locally only because the file exists in the working tree.
+
+   Proved by extracting `HEAD` to a temp dir and listing `web/src/lib/` — empty. No production
+   impact, because nothing builds `web/` until Phase 4e, but any collaborator cloning this repo
+   had a broken SPA and 4e would have hit it. Fixed in `9348268`: `/lib/` and `/lib64/` anchored
+   to the repo root (`dist/` stays unanchored on purpose so `web/dist/` remains ignored),
+   `types.gen.ts` ignored explicitly as a generated artifact, and `build` now runs `gen:types`
+   first so a clean checkout generates types instead of failing on a missing module.
+   **Verified by actually cloning the repo and building it**, not by simulating.
 
 **The FQDN that answers `/api/version` is `direct-sim-beta`, not `direct-sim`.** The deploy
 workflow updates both apps; `direct-sim` is the legacy Streamlit one and returns its index HTML
@@ -456,23 +470,46 @@ nested `door_chart.vital_signs`) and 3 dynamic lists.
 
 *Blockers — none of these are the editor, and all of them gate it:*
 
-- [ ] **Auth: login form sending `Authorization: Basic`** `ADR-021`. No backend change, no new
-      dependency, `verify_credentials` untouched. Credential in `sessionStorage`, cleared on
-      logout, 401 returns to login. **JWT is deferred, not cancelled** — with one shared account it
-      authenticates the same identity and revoking it equals rotating the password
+- [x] **Auth: login form sending `Authorization: Basic`** `ADR-021`, shipped `64ee481`, verified
+      in production. `GET /auth/check` validates a credential without doing anything, so a bad
+      password surfaces at login rather than by a save failing.
+
+      It uses a **second** dependency, `verify_credentials_silent`: same constant-time check, no
+      `WWW-Authenticate` header. That header is what makes a browser throw its own native
+      credential dialog on a 401, which would fight the app's login form with a popup the user
+      cannot style or sign out of. Deliberately not a change to `verify_credentials` — the
+      challenge is correct for Streamlit and every direct API caller. Confirmed still intact:
+      `PUT /edit-case` answers `401 WWW-Authenticate: Basic`.
+
+      Credential lives in `sessionStorage`, not `localStorage`: it is a shared password rather
+      than a revocable token, so it should not outlive the tab. **That is not an XSS boundary.**
+      A 401 on an authenticated call clears it, so the app falls back to login instead of retrying
+      a credential that cannot work
 - ~~Rotate `APP_PASSWORD`~~ — **deliberately deferred 2026-07-31**, not a blocker. Rotating means
       a Container Apps secret update plus a coordinated backend + Streamlit restart, which locks
       out anyone holding the current value, so it waits until the whole research team is reachable.
       **The editor ships on the known-default password**: until rotation, treat the SPA URL as
       effectively public and keep it inside the research group. See "Security posture" `ADR-021`
-- [ ] **A render-preview endpoint.** 4c wants a server-rendered preview so one renderer stays
-      authoritative, and **none exists**: `/preview-case` costs a model call and
-      `/oracle/render-items` only renders stems. Needs a write-nothing POST that takes a structured
-      record and returns markdown. Give it a `response_model`
-- [ ] **The `/structured` vs `/resync` confirmation.** A structured save silently overwrites
-      hand-edited markdown — correct per `ADR-002`, and destructive. Build it **before** the editor
-      ships, not after an author loses an evening's work. The two are not interchangeable and must
-      never be one button
+- [x] **`POST /sim-ready/render-preview`** shipped `9348268`, verified in production: writes
+      nothing, costs no model call, unauthenticated to match `/oracle/render-items`, declared with
+      a `response_model`. **Not case-scoped on purpose** — the preview must reflect the author's
+      unsaved buffer, so there is nothing to look up. Calls the same `render_sim_ready_content()`
+      a save calls, so a preview is byte-for-byte what would be stored; confirmed against the
+      live record for case 106.
+
+      `DOOR_CHART_DELIMITER` is now a named constant in `sim_ready_transform` and interpolated
+      into the template. It had been a bare literal in the renderer plus a second copy in
+      `frontend/app.py`, for a string the simulator parses by. Proved byte-identical output
+      against all three stored records before shipping
+- [x] **The `/structured` vs `/resync` confirmation** shipped `64ee481`.
+      `DetachedSaveConfirm` states the loss in terms of what disappears rather than flag names,
+      and offers `/resync` — the opposite operation — **in the same dialog**, so an author who
+      meant to keep the markdown reaches it instead of learning afterwards that it existed. Never
+      one button. `ParityBanner` surfaces divergence continuously on the case view, so it is not
+      discovered when the Oracle refuses to run.
+
+      **Still to wire:** the dialog exists and is correct, but nothing calls it yet — the save
+      path it guards is part of the editor below
 
 *The editor itself:*
 
