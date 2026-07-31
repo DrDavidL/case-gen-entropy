@@ -725,11 +725,17 @@ exist until there are real accounts.
 `Authorization: Basic`. No backend change, no new dependency, and `verify_credentials` is
 unchanged. The credential is held in `sessionStorage` and cleared on logout.
 
-**`APP_PASSWORD` is rotated as part of the same change.** It has been a publicly known default,
-recorded under "Security posture" as an accepted risk on the grounds that UNMC uses it broadly.
-That was defensible when the only client was a Streamlit app used by its authors. Putting a
-browser editor on it is the change that makes it indefensible, so the rotation is part of this
-work rather than a separate someday item.
+**`APP_PASSWORD` rotation was scoped into this change and then deliberately deferred**
+(2026-07-31, David). Rotating it requires a Container Apps secret update plus a coordinated
+restart of the backend and Streamlit, which breaks access for anyone holding the current value —
+so it needs the whole research team reachable first. Doing it unilaterally would lock out
+collaborators mid-work to close a gap that has been open and accepted since 2026-07-28.
+
+**The risk is therefore knowingly widened, not merely inherited.** It is a publicly known default
+and the only gate on writes to the shared production database; adding a browser editor increases
+what it protects. Until it is rotated, the SPA URL should be treated as effectively public and not
+shared beyond the research group. Tracked under "Security posture" in `ToDos.md`, with the trigger
+being "the team is reachable" rather than a date.
 
 **What this deliberately accepts.** Basic replays the actual password on every request, where a
 bearer token is at least a revocable stand-in. In a browser, both live in `sessionStorage` or

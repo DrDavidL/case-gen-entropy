@@ -460,9 +460,11 @@ nested `door_chart.vital_signs`) and 3 dynamic lists.
       dependency, `verify_credentials` untouched. Credential in `sessionStorage`, cleared on
       logout, 401 returns to login. **JWT is deferred, not cancelled** — with one shared account it
       authenticates the same identity and revoking it equals rotating the password
-- [ ] **Rotate `APP_PASSWORD`** in the same change: Container Apps secret + `.env`, then restart
-      backend and Streamlit together. It is a publicly known default and the only gate on writes to
-      the shared production database; a browser editor is what makes that indefensible `ADR-021`
+- ~~Rotate `APP_PASSWORD`~~ — **deliberately deferred 2026-07-31**, not a blocker. Rotating means
+      a Container Apps secret update plus a coordinated backend + Streamlit restart, which locks
+      out anyone holding the current value, so it waits until the whole research team is reachable.
+      **The editor ships on the known-default password**: until rotation, treat the SPA URL as
+      effectively public and keep it inside the research group. See "Security posture" `ADR-021`
 - [ ] **A render-preview endpoint.** 4c wants a server-rendered preview so one renderer stays
       authoritative, and **none exists**: `/preview-case` costs a model call and
       `/oracle/render-items` only renders stems. Needs a write-nothing POST that takes a structured
@@ -788,10 +790,20 @@ Then a login-and-load smoke test against the built SPA before pushing.
 
 ### Security posture
 
-- [ ] **`APP_PASSWORD` is a publicly known default.** Accepted 2026-07-28 on the grounds that
-      UNMC uses it broadly. Recorded as a rotation candidate, not a blocker: it is the only gate
-      on a generator that writes to the shared production database. Rotating means a Container
-      Apps secret update plus a `.env` change.
+- [ ] **Rotate `APP_PASSWORD` once the research team is reachable.** A publicly known default, and
+      the only gate on a generator that writes to the shared production database. Accepted
+      2026-07-28 on the grounds that UNMC uses it broadly; **re-affirmed 2026-07-31 with the risk
+      knowingly widened**, because the React editor ships on it `ADR-021`.
+
+      Deferred for a real reason rather than inertia: rotation is a Container Apps secret update
+      plus `.env`, and it needs a coordinated backend + Streamlit restart that locks out anyone
+      still holding the old value. That is a team-coordination problem, not a code one.
+
+      **Until then, the SPA URL is effectively public.** It is unauthenticated for reads today and
+      will accept the default credential for writes. Keep it inside the research group, and do the
+      rotation before it goes to anyone else. When rotating: update the Container Apps secret,
+      update `.env`, restart `casegen-backend` and `casegen-frontend` together, and confirm the
+      Streamlit UI can still save before telling anyone the new value.
 
 ### Carried over from the main merge
 
