@@ -94,3 +94,6 @@ generated_cases/
 # Deployment files with secrets
 deployment-config.yaml
 deployment-config-*.yaml
+# React SPA (Phase 4b)
+web/node_modules/
+web/dist/

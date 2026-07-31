@@ -155,6 +155,70 @@ class SimReadyCaseUpdateRequest(BaseModel):
     resync_structured: bool | None = None
 
 
+class CaseListItemResponse(BaseModel):
+    """One row of `GET /sim-ready/cases`."""
+
+    id: int
+    saved_name: str | None = None
+    allow_orders: bool | None = None
+
+
+class SimReadyCaseDetailResponse(BaseModel):
+    """`GET /sim-ready/case/{id}` — the row the simulator serves.
+
+    Note this uses `id`, while the save endpoints return the same row keyed as `case_id`
+    via `_sim_case_payload`. The difference is pre-existing and left alone here: the
+    simulator reads this shape, so renaming the field is a cross-repo change, not a
+    tidy-up. Declaring it at least makes the inconsistency visible in the schema.
+    """
+
+    id: int
+    saved_name: str | None = None
+    content: str | None = None
+    custom_input: dict[str, Any] = Field(default_factory=dict)
+    custom_evaluation: dict[str, Any] = Field(default_factory=dict)
+    allow_orders: bool | None = None
+    learner_tasks: str | None = None
+
+
+class StructuredRecordResponse(BaseModel):
+    """`GET /sim-ready/case/{id}/structured`.
+
+    Declared rather than returned as a bare dict because these responses are the contract
+    the frontend types are generated from (ADR-020). An endpoint with no `response_model`
+    documents itself as an empty object, so the generator emits `{}` and every field
+    access on the client is an error — the generation looks like it is protecting you
+    while describing nothing.
+    """
+
+    case_id: int
+    case_version_id: int
+    case_family_id: int
+    version: int
+    title: str | None = None
+    description: str = ""
+    primary_diagnosis: str = ""
+    oracle_specialty: str | None = None
+    content_structured: dict[str, Any] = Field(default_factory=dict)
+    content_rendered: str | None = None
+    render_detached: bool = False
+    parity_broken: bool = False
+    parity_reason: str | None = None
+    parity_message: str | None = None
+
+
+class CaseAnalysisResponse(BaseModel):
+    """`GET /sim-ready/case/{id}/analysis` — framework and LR data for the latest version."""
+
+    case_version_id: int
+    case_family_id: int
+    version: int
+    primary_diagnosis: str | None = None
+    render_detached: bool = False
+    diagnostic_framework: list[dict[str, Any]] = Field(default_factory=list)
+    feature_likelihood_ratios: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class OracleItemPreviewRequest(BaseModel):
     """Render the learner-facing items for a set of Final Orders.
 

@@ -37,7 +37,11 @@ from backend.models.editing_schemas import (
     RegenerateLRRequest,
     RegenerateLRResponse,
     SessionData,
+    CaseAnalysisResponse,
+    CaseListItemResponse,
     OracleItemPreviewRequest,
+    SimReadyCaseDetailResponse,
+    StructuredRecordResponse,
     SimReadyCaseCopyRequest,
     SimReadyCasePreviewResponse,
     SimReadyCaseUpdateRequest,
@@ -1169,7 +1173,7 @@ async def export_case_summary(case_id: int, db: Session = Depends(get_db)):
 # --- Sim-Ready Endpoints ---
 
 
-@app.get("/sim-ready/cases")
+@app.get("/sim-ready/cases", response_model=list[CaseListItemResponse])
 async def list_sim_ready_cases():
     """List all sim-ready cases from the simulator database."""
     sim_db = next(get_sim_ready_db())
@@ -1183,7 +1187,7 @@ async def list_sim_ready_cases():
         sim_db.close()
 
 
-@app.get("/sim-ready/case/{case_id}/analysis")
+@app.get("/sim-ready/case/{case_id}/analysis", response_model=CaseAnalysisResponse)
 async def get_sim_ready_case_analysis(case_id: int):
     """Diagnostic framework + likelihood ratios for a sim-ready case.
 
@@ -1207,7 +1211,9 @@ async def get_sim_ready_case_analysis(case_id: int):
         sim_db.close()
 
 
-@app.get("/sim-ready/case/{case_id}/structured")
+@app.get(
+    "/sim-ready/case/{case_id}/structured", response_model=StructuredRecordResponse
+)
 async def get_sim_ready_case_structured(case_id: int):
     """The canonical structured record for a case's latest version (ADR-002).
 
@@ -1402,7 +1408,7 @@ async def update_sim_ready_case_structured(
         sim_db.close()
 
 
-@app.get("/sim-ready/case/{case_id}")
+@app.get("/sim-ready/case/{case_id}", response_model=SimReadyCaseDetailResponse)
 async def get_sim_ready_case(case_id: int):
     """Retrieve a single sim-ready case."""
     sim_db = next(get_sim_ready_db())

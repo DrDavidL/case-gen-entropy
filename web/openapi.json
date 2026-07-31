@@ -1,0 +1,3322 @@
+{
+  "components": {
+    "schemas": {
+      "AdoptCaseRequest": {
+        "description": "Give a pre-authoring-record case its first `case_version`, read from its markdown.\n\nCases finalized before `authoring.case_versions` existed have no structured record,\nwhich blocks Final Orders and the Oracle: both resolve through the latest version.\nRe-sync cannot help \u2014 it starts from a version there is none of.\n\n`primary_diagnosis` is required, and required for a safety reason rather than a\nbookkeeping one. The Oracle's leak audit builds its search terms from this field, and\nan empty string produces an empty term list, so the audit would pass without checking\nanything (`blinded_context.audit_leak`). Adopting without it would turn the panel's\nmain safety control into a silent no-op on exactly the cases nobody has reviewed.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "oracle_specialty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oracle Specialty"
+          },
+          "primary_diagnosis": {
+            "description": "The case's actual diagnosis. Withheld from the panel; used to audit the blinded context for leaks.",
+            "minLength": 1,
+            "title": "Primary Diagnosis",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "primary_diagnosis"
+        ],
+        "title": "AdoptCaseRequest",
+        "type": "object"
+      },
+      "CaseAnalysisResponse": {
+        "description": "`GET /sim-ready/case/{id}/analysis` \u2014 framework and LR data for the latest version.",
+        "properties": {
+          "case_family_id": {
+            "title": "Case Family Id",
+            "type": "integer"
+          },
+          "case_version_id": {
+            "title": "Case Version Id",
+            "type": "integer"
+          },
+          "diagnostic_framework": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Diagnostic Framework",
+            "type": "array"
+          },
+          "feature_likelihood_ratios": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Feature Likelihood Ratios",
+            "type": "array"
+          },
+          "primary_diagnosis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Diagnosis"
+          },
+          "render_detached": {
+            "default": false,
+            "title": "Render Detached",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "case_version_id",
+          "case_family_id",
+          "version"
+        ],
+        "title": "CaseAnalysisResponse",
+        "type": "object"
+      },
+      "CaseDetails": {
+        "properties": {
+          "diagnostic_workup": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Diagnostic Workup",
+            "type": "array"
+          },
+          "history_questions": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "History Questions",
+            "type": "array"
+          },
+          "patient_personality": {
+            "title": "Patient Personality",
+            "type": "string"
+          },
+          "physical_exam_findings": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Physical Exam Findings",
+            "type": "array"
+          },
+          "presentation": {
+            "title": "Presentation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "presentation",
+          "patient_personality",
+          "history_questions",
+          "physical_exam_findings",
+          "diagnostic_workup"
+        ],
+        "title": "CaseDetails",
+        "type": "object"
+      },
+      "CaseEditRequest": {
+        "properties": {
+          "case_details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EditableCaseDetails"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "diagnostic_framework": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EditableDiagnosticTier"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic Framework"
+          },
+          "feature_likelihood_ratios": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EditableFeatureLR"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Likelihood Ratios"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "CaseEditRequest",
+        "type": "object"
+      },
+      "CaseInput": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "output_format": {
+            "default": "sim_ready",
+            "title": "Output Format",
+            "type": "string"
+          },
+          "primary_diagnosis": {
+            "title": "Primary Diagnosis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "primary_diagnosis"
+        ],
+        "title": "CaseInput",
+        "type": "object"
+      },
+      "CaseListItemResponse": {
+        "description": "One row of `GET /sim-ready/cases`.",
+        "properties": {
+          "allow_orders": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Orders"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "saved_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Name"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "CaseListItemResponse",
+        "type": "object"
+      },
+      "CaseOutputFiles": {
+        "properties": {
+          "a_priori_probabilities_json": {
+            "additionalProperties": true,
+            "title": "A Priori Probabilities Json",
+            "type": "object"
+          },
+          "case_details_json": {
+            "additionalProperties": true,
+            "title": "Case Details Json",
+            "type": "object"
+          },
+          "feature_likelihood_ratios_json": {
+            "additionalProperties": true,
+            "title": "Feature Likelihood Ratios Json",
+            "type": "object"
+          }
+        },
+        "required": [
+          "case_details_json",
+          "a_priori_probabilities_json",
+          "feature_likelihood_ratios_json"
+        ],
+        "title": "CaseOutputFiles",
+        "type": "object"
+      },
+      "CaseResponse": {
+        "properties": {
+          "case_details": {
+            "$ref": "#/components/schemas/CaseDetails"
+          },
+          "case_id": {
+            "title": "Case Id",
+            "type": "integer"
+          },
+          "diagnostic_framework": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticTier"
+            },
+            "title": "Diagnostic Framework",
+            "type": "array"
+          },
+          "feature_likelihood_ratios": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureLR"
+            },
+            "title": "Feature Likelihood Ratios",
+            "type": "array"
+          }
+        },
+        "required": [
+          "case_id",
+          "case_details",
+          "diagnostic_framework",
+          "feature_likelihood_ratios"
+        ],
+        "title": "CaseResponse",
+        "type": "object"
+      },
+      "CaseSaveRequest": {
+        "properties": {
+          "allow_orders": {
+            "default": true,
+            "title": "Allow Orders",
+            "type": "boolean"
+          },
+          "custom_evaluation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Evaluation"
+          },
+          "custom_input": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Input"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "final_orders": {
+            "items": {
+              "$ref": "#/components/schemas/FinalOrderInput"
+            },
+            "maxItems": 5,
+            "title": "Final Orders",
+            "type": "array"
+          },
+          "learner_tasks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learner Tasks"
+          },
+          "oracle_specialty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oracle Specialty"
+          },
+          "output_format": {
+            "default": "sim_ready",
+            "title": "Output Format",
+            "type": "string"
+          },
+          "primary_diagnosis": {
+            "title": "Primary Diagnosis",
+            "type": "string"
+          },
+          "rendered_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rendered Content"
+          },
+          "run_oracle": {
+            "default": false,
+            "title": "Run Oracle",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "session_id",
+          "description",
+          "primary_diagnosis"
+        ],
+        "title": "CaseSaveRequest",
+        "type": "object"
+      },
+      "DiagnosticBucket": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "DiagnosticBucket",
+        "type": "object"
+      },
+      "DiagnosticReasoning": {
+        "properties": {
+          "differential_diagnoses": {
+            "description": "Comma-separated list of differential diagnoses, e.g. 'STEMI, Unstable Angina, Aortic Dissection, PE'",
+            "title": "Differential Diagnoses",
+            "type": "string"
+          },
+          "essential_hpi_details": {
+            "description": "Critical HPI elements the learner should elicit to reach the diagnosis, e.g. 'Specific characteristics of pain, onset, and associated symptoms'",
+            "title": "Essential Hpi Details",
+            "type": "string"
+          },
+          "rationale": {
+            "description": "Clinical reasoning linking the presentation to the differential, e.g. 'The presence of substernal chest pain with radiation suggests ACS'",
+            "title": "Rationale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "essential_hpi_details",
+          "differential_diagnoses",
+          "rationale"
+        ],
+        "title": "DiagnosticReasoning",
+        "type": "object"
+      },
+      "DiagnosticTest": {
+        "properties": {
+          "rationale": {
+            "description": "Clinical rationale for ordering this test",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "test": {
+            "description": "The diagnostic test (lab, imaging, EKG, etc.)",
+            "title": "Test",
+            "type": "string"
+          }
+        },
+        "required": [
+          "test",
+          "rationale"
+        ],
+        "title": "DiagnosticTest",
+        "type": "object"
+      },
+      "DiagnosticTier": {
+        "properties": {
+          "a_priori_probabilities": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "A Priori Probabilities",
+            "type": "object"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticBucket"
+            },
+            "title": "Buckets",
+            "type": "array"
+          },
+          "tier_level": {
+            "title": "Tier Level",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tier_level",
+          "buckets",
+          "a_priori_probabilities"
+        ],
+        "title": "DiagnosticTier",
+        "type": "object"
+      },
+      "DoorChart": {
+        "properties": {
+          "age": {
+            "description": "Patient age, e.g. '60'",
+            "title": "Age",
+            "type": "string"
+          },
+          "chief_complaint": {
+            "description": "Brief chief complaint for the door chart, e.g. 'Substernal chest pain'",
+            "title": "Chief Complaint",
+            "type": "string"
+          },
+          "clinical_setting": {
+            "description": "Setting where the encounter takes place, e.g. 'Emergency Department'",
+            "title": "Clinical Setting",
+            "type": "string"
+          },
+          "legal_sex": {
+            "description": "Patient legal sex, e.g. 'Male'",
+            "title": "Legal Sex",
+            "type": "string"
+          },
+          "patient_name": {
+            "description": "Simulated patient name, e.g. 'John Doe'",
+            "title": "Patient Name",
+            "type": "string"
+          },
+          "vital_signs": {
+            "$ref": "#/components/schemas/VitalSigns",
+            "description": "Initial vital signs displayed on the door chart"
+          }
+        },
+        "required": [
+          "patient_name",
+          "age",
+          "legal_sex",
+          "chief_complaint",
+          "clinical_setting",
+          "vital_signs"
+        ],
+        "title": "DoorChart",
+        "type": "object"
+      },
+      "EditableCaseDetails": {
+        "properties": {
+          "diagnostic_workup": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Diagnostic Workup",
+            "type": "array"
+          },
+          "history_questions": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "History Questions",
+            "type": "array"
+          },
+          "patient_personality": {
+            "title": "Patient Personality",
+            "type": "string"
+          },
+          "physical_exam_findings": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Physical Exam Findings",
+            "type": "array"
+          },
+          "presentation": {
+            "title": "Presentation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "presentation",
+          "patient_personality",
+          "history_questions",
+          "physical_exam_findings",
+          "diagnostic_workup"
+        ],
+        "title": "EditableCaseDetails",
+        "type": "object"
+      },
+      "EditableDiagnosticBucket": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "EditableDiagnosticBucket",
+        "type": "object"
+      },
+      "EditableDiagnosticTier": {
+        "properties": {
+          "a_priori_probabilities": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "A Priori Probabilities",
+            "type": "object"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/EditableDiagnosticBucket"
+            },
+            "title": "Buckets",
+            "type": "array"
+          },
+          "tier_level": {
+            "title": "Tier Level",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tier_level",
+          "buckets",
+          "a_priori_probabilities"
+        ],
+        "title": "EditableDiagnosticTier",
+        "type": "object"
+      },
+      "EditableFeatureLR": {
+        "properties": {
+          "diagnostic_bucket": {
+            "title": "Diagnostic Bucket",
+            "type": "string"
+          },
+          "feature_category": {
+            "title": "Feature Category",
+            "type": "string"
+          },
+          "feature_name": {
+            "title": "Feature Name",
+            "type": "string"
+          },
+          "likelihood_ratio": {
+            "title": "Likelihood Ratio",
+            "type": "number"
+          },
+          "tier_level": {
+            "title": "Tier Level",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "feature_name",
+          "feature_category",
+          "diagnostic_bucket",
+          "tier_level",
+          "likelihood_ratio"
+        ],
+        "title": "EditableFeatureLR",
+        "type": "object"
+      },
+      "FamilyHistory": {
+        "properties": {
+          "parents": {
+            "description": "Parental medical history, e.g. 'Father had MI at age 65, mother alive with hypertension'",
+            "title": "Parents",
+            "type": "string"
+          },
+          "siblings": {
+            "description": "Sibling medical history, e.g. 'Two siblings, one with hypertension'",
+            "title": "Siblings",
+            "type": "string"
+          }
+        },
+        "required": [
+          "parents",
+          "siblings"
+        ],
+        "title": "FamilyHistory",
+        "type": "object"
+      },
+      "FeatureLR": {
+        "properties": {
+          "diagnostic_bucket": {
+            "title": "Diagnostic Bucket",
+            "type": "string"
+          },
+          "feature_category": {
+            "title": "Feature Category",
+            "type": "string"
+          },
+          "feature_name": {
+            "title": "Feature Name",
+            "type": "string"
+          },
+          "likelihood_ratio": {
+            "title": "Likelihood Ratio",
+            "type": "number"
+          }
+        },
+        "required": [
+          "feature_name",
+          "feature_category",
+          "diagnostic_bucket",
+          "likelihood_ratio"
+        ],
+        "title": "FeatureLR",
+        "type": "object"
+      },
+      "FinalOrderInput": {
+        "description": "One Final Order as submitted by the author.\n\n`provenance` distinguishes an order the author wrote from one the generator proposed\nand the author accepted. It matters because if the same model family both proposes an\norder and rates its appropriateness, the resulting distribution is partly\nself-fulfilling \u2014 recording provenance makes that testable (ADR-004).",
+        "properties": {
+          "display_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Order"
+          },
+          "order_text": {
+            "description": "Short label, e.g. 'Brain MRI'. Used for display and for the simulator's suppression match.",
+            "minLength": 1,
+            "title": "Order Text",
+            "type": "string"
+          },
+          "provenance": {
+            "default": "author_entered",
+            "pattern": "^(author_entered|llm_suggested_accepted)$",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "stem_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The action as a gerund phrase for the stem, e.g. 'ordering a brain MRI' or 'activating the stroke team'. Null derives one from order_text, which is correct for tests and treatments but not for activations.",
+            "title": "Stem Action"
+          },
+          "stem_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional per-order override of the stem lead. Must contain the {action} placeholder. The scale anchors are never overridable.",
+            "title": "Stem Template"
+          },
+          "suppress_results": {
+            "default": true,
+            "title": "Suppress Results",
+            "type": "boolean"
+          },
+          "suppression_message": {
+            "default": "Result pending",
+            "title": "Suppression Message",
+            "type": "string"
+          },
+          "suppression_synonyms": {
+            "description": "Alternate phrasings the simulator also suppresses. Author-supplied because conservative explicit matching beats fuzzy similarity here: a false positive degrades the simulation, a false negative destroys the measurement.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Suppression Synonyms",
+            "type": "array"
+          }
+        },
+        "required": [
+          "order_text"
+        ],
+        "title": "FinalOrderInput",
+        "type": "object"
+      },
+      "FinalOrdersUpdateRequest": {
+        "description": "Replace the Final Orders on a case version.\n\nReplace rather than patch: the submitted list is the author's authoritative statement\nof what the case has, so a deleted order actually disappears.",
+        "properties": {
+          "final_orders": {
+            "items": {
+              "$ref": "#/components/schemas/FinalOrderInput"
+            },
+            "maxItems": 5,
+            "title": "Final Orders",
+            "type": "array"
+          },
+          "oracle_specialty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oracle Specialty"
+          },
+          "run_oracle": {
+            "default": false,
+            "title": "Run Oracle",
+            "type": "boolean"
+          }
+        },
+        "title": "FinalOrdersUpdateRequest",
+        "type": "object"
+      },
+      "HPIDetails": {
+        "properties": {
+          "additional_details": {
+            "description": "Any additional HPI details such as associated symptoms, e.g. 'Accompanied by shortness of breath and sweating'",
+            "title": "Additional Details",
+            "type": "string"
+          },
+          "aggravating_alleviating_factors": {
+            "description": "Factors that worsen or improve the symptom, e.g. 'Aggravated by physical activity, relieved by rest'",
+            "title": "Aggravating Alleviating Factors",
+            "type": "string"
+          },
+          "character": {
+            "description": "Quality or character of the symptom, e.g. 'Sharp and pressure-like'",
+            "title": "Character",
+            "type": "string"
+          },
+          "duration": {
+            "description": "How long the symptoms have lasted, e.g. 'Continuous since onset'",
+            "title": "Duration",
+            "type": "string"
+          },
+          "location": {
+            "description": "Anatomical location of the primary symptom, e.g. 'Substernal'",
+            "title": "Location",
+            "type": "string"
+          },
+          "onset": {
+            "description": "When the symptoms started, e.g. '3 hours ago'",
+            "title": "Onset",
+            "type": "string"
+          },
+          "radiation": {
+            "description": "Whether and where the symptom radiates, e.g. 'Radiates to his left arm'",
+            "title": "Radiation",
+            "type": "string"
+          },
+          "severity": {
+            "description": "Severity rating of the symptom, e.g. '7/10'",
+            "title": "Severity",
+            "type": "string"
+          },
+          "timing": {
+            "description": "Pattern or timing of the symptom, e.g. 'Constant since onset'",
+            "title": "Timing",
+            "type": "string"
+          }
+        },
+        "required": [
+          "onset",
+          "location",
+          "duration",
+          "character",
+          "aggravating_alleviating_factors",
+          "radiation",
+          "timing",
+          "severity",
+          "additional_details"
+        ],
+        "title": "HPIDetails",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistoryQuestion": {
+        "properties": {
+          "expected_answer": {
+            "description": "The expected response from the patient",
+            "title": "Expected Answer",
+            "type": "string"
+          },
+          "question": {
+            "description": "A specific history question to ask the patient",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "expected_answer"
+        ],
+        "title": "HistoryQuestion",
+        "type": "object"
+      },
+      "MedicationsAllergies": {
+        "properties": {
+          "allergies": {
+            "description": "Known drug or other allergies, e.g. 'No known drug allergies'",
+            "title": "Allergies",
+            "type": "string"
+          },
+          "medications": {
+            "description": "Current medications with dosages, e.g. 'Lisinopril 10 mg daily, Atorvastatin 20 mg daily'",
+            "title": "Medications",
+            "type": "string"
+          }
+        },
+        "required": [
+          "medications",
+          "allergies"
+        ],
+        "title": "MedicationsAllergies",
+        "type": "object"
+      },
+      "OracleItemPreviewRequest": {
+        "description": "Render the learner-facing items for a set of Final Orders.\n\nExists so no client reimplements the stem. Batched over `orders` because the authoring\nUI previews every order on the case together, and a per-order round trip is exactly\nthe friction that makes reimplementing it look reasonable.",
+        "properties": {
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/FinalOrderInput"
+            },
+            "maxItems": 5,
+            "title": "Orders",
+            "type": "array"
+          },
+          "stem_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null uses the backend's active stem. Pass a version only to preview an alternative; the panel always runs the configured one.",
+            "title": "Stem Version"
+          }
+        },
+        "title": "OracleItemPreviewRequest",
+        "type": "object"
+      },
+      "OracleRunRequest": {
+        "description": "Optional body for starting an Oracle panel.\n\n`leak_override_reason` is the only way past a failing diagnosis-leak audit, and it is\nstored on every run it produces. The audit stays blocking by default; this makes the\nexception visible in the data instead of tempting anyone to weaken the check.",
+        "properties": {
+          "leak_override_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leak Override Reason"
+          }
+        },
+        "title": "OracleRunRequest",
+        "type": "object"
+      },
+      "PastMedicalHistory": {
+        "properties": {
+          "active_problems": {
+            "description": "Current active medical conditions, e.g. 'Hypertension, Hyperlipidemia'",
+            "title": "Active Problems",
+            "type": "string"
+          },
+          "hospitalizations": {
+            "description": "Prior hospitalizations with reasons and timing, e.g. '1 for pneumonia 2 years ago'",
+            "title": "Hospitalizations",
+            "type": "string"
+          },
+          "immunizations": {
+            "description": "Immunization status, e.g. 'Up to date with vaccines; flu shot last year'",
+            "title": "Immunizations",
+            "type": "string"
+          },
+          "inactive_problems": {
+            "description": "Resolved or inactive medical conditions, e.g. 'None'",
+            "title": "Inactive Problems",
+            "type": "string"
+          },
+          "surgical_history": {
+            "description": "Prior surgeries, e.g. 'Appendectomy at age 25'",
+            "title": "Surgical History",
+            "type": "string"
+          }
+        },
+        "required": [
+          "active_problems",
+          "inactive_problems",
+          "hospitalizations",
+          "surgical_history",
+          "immunizations"
+        ],
+        "title": "PastMedicalHistory",
+        "type": "object"
+      },
+      "PatientApproach": {
+        "properties": {
+          "communication_style": {
+            "description": "How the patient communicates \u2014 verbose, terse, evasive, etc. Include behavioral cues for simulation",
+            "title": "Communication Style",
+            "type": "string"
+          },
+          "education_level": {
+            "description": "Patient's education level, e.g. 'High school diploma', 'College degree'",
+            "title": "Education Level",
+            "type": "string"
+          },
+          "emotional_response": {
+            "description": "Patient's emotional state and response during the encounter, e.g. 'Anxious and concerned about his health'",
+            "title": "Emotional Response",
+            "type": "string"
+          }
+        },
+        "required": [
+          "education_level",
+          "emotional_response",
+          "communication_style"
+        ],
+        "title": "PatientApproach",
+        "type": "object"
+      },
+      "PhysicalExamFinding": {
+        "properties": {
+          "examination": {
+            "description": "The physical exam component or maneuver",
+            "title": "Examination",
+            "type": "string"
+          },
+          "findings": {
+            "description": "The expected findings from this examination",
+            "title": "Findings",
+            "type": "string"
+          }
+        },
+        "required": [
+          "examination",
+          "findings"
+        ],
+        "title": "PhysicalExamFinding",
+        "type": "object"
+      },
+      "ProposeFinalOrdersRequest": {
+        "description": "Ask the generator for candidate Final Orders. Writes nothing.",
+        "properties": {
+          "case_details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Details"
+          },
+          "max_candidates": {
+            "default": 5,
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Max Candidates",
+            "type": "integer"
+          },
+          "primary_diagnosis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Diagnosis"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "title": "ProposeFinalOrdersRequest",
+        "type": "object"
+      },
+      "RegenerateLRRequest": {
+        "description": "Re-run likelihood-ratio generation against the current session.\n\nPorted from the pre-divergence `main` lineage. Falls back to an explicit\ncase/framework payload when the Redis session has expired.",
+        "properties": {
+          "case_details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Details"
+          },
+          "diagnostic_framework": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic Framework"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "RegenerateLRRequest",
+        "type": "object"
+      },
+      "RegenerateLRResponse": {
+        "properties": {
+          "feature_likelihood_ratios": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Feature Likelihood Ratios",
+            "type": "array"
+          }
+        },
+        "required": [
+          "feature_likelihood_ratios"
+        ],
+        "title": "RegenerateLRResponse",
+        "type": "object"
+      },
+      "SimReadyCaseCopyRequest": {
+        "description": "Fork an edited case into a new simulator row and a new case family.\n\nFor a genuine variant of a case, not for an edit \u2014 an edit is a new version of the\nsame family, so learner performance stays attributable to one case concept.",
+        "properties": {
+          "allow_orders": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Orders"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "custom_evaluation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Evaluation"
+          },
+          "custom_input": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Input"
+          },
+          "learner_tasks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learner Tasks"
+          },
+          "resync_structured": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resync Structured"
+          },
+          "saved_name": {
+            "description": "Name for the new case. Required: the point is that it is distinguishable from the case it was forked from.",
+            "minLength": 1,
+            "title": "Saved Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "saved_name"
+        ],
+        "title": "SimReadyCaseCopyRequest",
+        "type": "object"
+      },
+      "SimReadyCaseDetailResponse": {
+        "description": "`GET /sim-ready/case/{id}` \u2014 the row the simulator serves.\n\nNote this uses `id`, while the save endpoints return the same row keyed as `case_id`\nvia `_sim_case_payload`. The difference is pre-existing and left alone here: the\nsimulator reads this shape, so renaming the field is a cross-repo change, not a\ntidy-up. Declaring it at least makes the inconsistency visible in the schema.",
+        "properties": {
+          "allow_orders": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Orders"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "custom_evaluation": {
+            "additionalProperties": true,
+            "title": "Custom Evaluation",
+            "type": "object"
+          },
+          "custom_input": {
+            "additionalProperties": true,
+            "title": "Custom Input",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "learner_tasks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learner Tasks"
+          },
+          "saved_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Name"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "SimReadyCaseDetailResponse",
+        "type": "object"
+      },
+      "SimReadyCaseDetailsStructured": {
+        "description": "Top-level structured output model for simulator-ready case generation.\nCombines a rich clinical dashboard with the original list-based fields\nneeded for the likelihood-ratio pipeline.",
+        "properties": {
+          "case_title": {
+            "description": "Descriptive title for the case, e.g. 'Chest Pain with ECG Changes'",
+            "title": "Case Title",
+            "type": "string"
+          },
+          "diagnostic_reasoning": {
+            "$ref": "#/components/schemas/DiagnosticReasoning",
+            "description": "Essential HPI details to elicit, differential diagnoses, and clinical rationale"
+          },
+          "diagnostic_workup": {
+            "description": "List of diagnostic tests and rationales for LR matrix generation",
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticTest"
+            },
+            "title": "Diagnostic Workup",
+            "type": "array"
+          },
+          "door_chart": {
+            "$ref": "#/components/schemas/DoorChart",
+            "description": "Patient door chart with demographics, chief complaint, setting, and vital signs"
+          },
+          "family_history": {
+            "$ref": "#/components/schemas/FamilyHistory",
+            "description": "Family medical history for parents and siblings"
+          },
+          "history_questions": {
+            "description": "List of history questions with expected patient responses for LR matrix generation",
+            "items": {
+              "$ref": "#/components/schemas/HistoryQuestion"
+            },
+            "title": "History Questions",
+            "type": "array"
+          },
+          "hpi": {
+            "$ref": "#/components/schemas/HPIDetails",
+            "description": "Structured History of Present Illness using OLDCARTS framework"
+          },
+          "medications_allergies": {
+            "$ref": "#/components/schemas/MedicationsAllergies",
+            "description": "Current medications and known allergies"
+          },
+          "paragraph_summary": {
+            "description": "Narrative paragraph summarizing the full case presentation",
+            "title": "Paragraph Summary",
+            "type": "string"
+          },
+          "past_medical_history": {
+            "$ref": "#/components/schemas/PastMedicalHistory",
+            "description": "Patient's past medical history including surgeries and immunizations"
+          },
+          "patient_approach": {
+            "$ref": "#/components/schemas/PatientApproach",
+            "description": "Patient education, emotional state, and communication style for simulation"
+          },
+          "physical_exam_findings": {
+            "description": "List of physical examination findings for LR matrix generation",
+            "items": {
+              "$ref": "#/components/schemas/PhysicalExamFinding"
+            },
+            "title": "Physical Exam Findings",
+            "type": "array"
+          },
+          "physical_exam_findings_text": {
+            "description": "Full narrative physical examination findings paragraph",
+            "title": "Physical Exam Findings Text",
+            "type": "string"
+          },
+          "ros_pertinent_findings": {
+            "description": "Pertinent positive and negative findings from review of systems",
+            "title": "Ros Pertinent Findings",
+            "type": "string"
+          },
+          "social_history": {
+            "$ref": "#/components/schemas/SocialHistory",
+            "description": "Comprehensive social history relevant to the case"
+          },
+          "teaching_points": {
+            "$ref": "#/components/schemas/TeachingPoints",
+            "description": "Key learning objectives and educational content for the case"
+          }
+        },
+        "required": [
+          "case_title",
+          "paragraph_summary",
+          "patient_approach",
+          "hpi",
+          "past_medical_history",
+          "social_history",
+          "family_history",
+          "medications_allergies",
+          "ros_pertinent_findings",
+          "physical_exam_findings_text",
+          "diagnostic_reasoning",
+          "teaching_points",
+          "door_chart",
+          "history_questions",
+          "physical_exam_findings",
+          "diagnostic_workup"
+        ],
+        "title": "SimReadyCaseDetailsStructured",
+        "type": "object"
+      },
+      "SimReadyCaseUpdateRequest": {
+        "description": "Save an edited case that was loaded from the database.\n\n`save_mode` exists because the previous behaviour \u2014 always overwrite the row \u2014\nbypassed versioning entirely (ADR-003). An edit left no record that it happened, so\nlearner runs from before and after an edit were silently pooled, and the Oracle's\nstructured record was left describing the pre-edit case.",
+        "properties": {
+          "allow_orders": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Orders"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "custom_evaluation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Evaluation"
+          },
+          "custom_input": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Input"
+          },
+          "learner_tasks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learner Tasks"
+          },
+          "resync_structured": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resync Structured"
+          },
+          "save_mode": {
+            "default": "new_version",
+            "enum": [
+              "new_version",
+              "in_place"
+            ],
+            "title": "Save Mode",
+            "type": "string"
+          },
+          "saved_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Name"
+          }
+        },
+        "title": "SimReadyCaseUpdateRequest",
+        "type": "object"
+      },
+      "SimReadyStructuredUpdateRequest": {
+        "description": "Save structured field edits. The renderer produces the markdown (ADR-002).\n\nThe inverse of `SimReadyCaseUpdateRequest`, which takes markdown in and spends a model\ncall re-reading it back into the record. Here the record *is* the input, so there is\nnothing to re-read: rendering is deterministic, the projection cannot drift from its\nsource, and the save costs no LLM call at all.\n\n`content_structured` is typed rather than a free dict on purpose. It is the contract\nthe generated frontend types are built from (ADR-020), so a field renamed in\n`SimReadyCaseDetailsStructured` has to surface as a validation error here and a type\nerror there, instead of as a key that silently stops arriving.",
+        "properties": {
+          "allow_orders": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Orders"
+          },
+          "content_structured": {
+            "$ref": "#/components/schemas/SimReadyCaseDetailsStructured"
+          },
+          "custom_evaluation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Evaluation"
+          },
+          "custom_input": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Input"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "learner_tasks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learner Tasks"
+          },
+          "oracle_specialty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oracle Specialty"
+          },
+          "primary_diagnosis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Diagnosis"
+          },
+          "saved_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Name"
+          }
+        },
+        "required": [
+          "content_structured"
+        ],
+        "title": "SimReadyStructuredUpdateRequest",
+        "type": "object"
+      },
+      "SocialHistory": {
+        "properties": {
+          "alcohol": {
+            "description": "Alcohol use history, e.g. 'Occasional social drinker'",
+            "title": "Alcohol",
+            "type": "string"
+          },
+          "contextual_details": {
+            "description": "Additional social context relevant to the case, e.g. 'Recent job stress'",
+            "title": "Contextual Details",
+            "type": "string"
+          },
+          "diet": {
+            "description": "Dietary habits relevant to the case, e.g. 'High in cholesterol'",
+            "title": "Diet",
+            "type": "string"
+          },
+          "exercise": {
+            "description": "Exercise habits, e.g. 'Sedentary lifestyle'",
+            "title": "Exercise",
+            "type": "string"
+          },
+          "home_life_safety": {
+            "description": "Living situation and safety concerns, e.g. 'Lives alone, no apparent safety concerns'",
+            "title": "Home Life Safety",
+            "type": "string"
+          },
+          "mood": {
+            "description": "Patient's baseline mood and recent changes, e.g. 'Generally low; feeling worried'",
+            "title": "Mood",
+            "type": "string"
+          },
+          "sexual_activity": {
+            "description": "Sexual activity status, e.g. 'Active, no issues'",
+            "title": "Sexual Activity",
+            "type": "string"
+          },
+          "substances": {
+            "description": "Illicit substance use history, e.g. 'Denies illicit drug use'",
+            "title": "Substances",
+            "type": "string"
+          },
+          "tobacco": {
+            "description": "Tobacco use history, e.g. 'Former smoker, quit 10 years ago'",
+            "title": "Tobacco",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tobacco",
+          "alcohol",
+          "substances",
+          "diet",
+          "exercise",
+          "sexual_activity",
+          "home_life_safety",
+          "mood",
+          "contextual_details"
+        ],
+        "title": "SocialHistory",
+        "type": "object"
+      },
+      "StructuredRecordResponse": {
+        "description": "`GET /sim-ready/case/{id}/structured`.\n\nDeclared rather than returned as a bare dict because these responses are the contract\nthe frontend types are generated from (ADR-020). An endpoint with no `response_model`\ndocuments itself as an empty object, so the generator emits `{}` and every field\naccess on the client is an error \u2014 the generation looks like it is protecting you\nwhile describing nothing.",
+        "properties": {
+          "case_family_id": {
+            "title": "Case Family Id",
+            "type": "integer"
+          },
+          "case_id": {
+            "title": "Case Id",
+            "type": "integer"
+          },
+          "case_version_id": {
+            "title": "Case Version Id",
+            "type": "integer"
+          },
+          "content_rendered": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Rendered"
+          },
+          "content_structured": {
+            "additionalProperties": true,
+            "title": "Content Structured",
+            "type": "object"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "oracle_specialty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oracle Specialty"
+          },
+          "parity_broken": {
+            "default": false,
+            "title": "Parity Broken",
+            "type": "boolean"
+          },
+          "parity_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parity Message"
+          },
+          "parity_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parity Reason"
+          },
+          "primary_diagnosis": {
+            "default": "",
+            "title": "Primary Diagnosis",
+            "type": "string"
+          },
+          "render_detached": {
+            "default": false,
+            "title": "Render Detached",
+            "type": "boolean"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "case_id",
+          "case_version_id",
+          "case_family_id",
+          "version"
+        ],
+        "title": "StructuredRecordResponse",
+        "type": "object"
+      },
+      "TeachingPoints": {
+        "properties": {
+          "educational_content": {
+            "description": "Educational discussion points and clinical pearls, e.g. 'Discussion on STEMI presentation and management'",
+            "title": "Educational Content",
+            "type": "string"
+          },
+          "key_learning_objectives": {
+            "description": "Primary learning objectives for this case, e.g. 'Recognize symptoms of ACS'",
+            "title": "Key Learning Objectives",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_learning_objectives",
+          "educational_content"
+        ],
+        "title": "TeachingPoints",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VitalSigns": {
+        "properties": {
+          "blood_pressure": {
+            "description": "Blood pressure reading, e.g. '150/90 mmHg'",
+            "title": "Blood Pressure",
+            "type": "string"
+          },
+          "pulse_rate": {
+            "description": "Pulse rate, e.g. '95 bpm'",
+            "title": "Pulse Rate",
+            "type": "string"
+          },
+          "respiratory_rate": {
+            "description": "Respiratory rate, e.g. '22 breaths per minute'",
+            "title": "Respiratory Rate",
+            "type": "string"
+          },
+          "spo2": {
+            "description": "Oxygen saturation, e.g. '96%'",
+            "title": "Spo2",
+            "type": "string"
+          },
+          "temperature_celsius": {
+            "description": "Temperature in Celsius, e.g. '37.2 \u00b0C'",
+            "title": "Temperature Celsius",
+            "type": "string"
+          }
+        },
+        "required": [
+          "blood_pressure",
+          "pulse_rate",
+          "respiratory_rate",
+          "temperature_celsius",
+          "spo2"
+        ],
+        "title": "VitalSigns",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBasic": {
+        "scheme": "basic",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Medical Case Generator API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "description": "Health check and build identity.\n\nThe build fields are load-bearing: a stale container is otherwise\nindistinguishable from a current one. Doubles as the Docker HEALTHCHECK\ntarget, so keep it cheap and dependency-free.",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Root"
+      }
+    },
+    "/case/{case_id}/debug-lr-data": {
+      "get": {
+        "description": "Debug endpoint to see raw LR data before matrix creation.",
+        "operationId": "debug_lr_data_case__case_id__debug_lr_data_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Debug Lr Data"
+      }
+    },
+    "/case/{case_id}/output-files": {
+      "get": {
+        "operationId": "get_case_output_files_case__case_id__output_files_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseOutputFiles"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Case Output Files"
+      }
+    },
+    "/case/{case_id}/simulator-export/case-summary": {
+      "get": {
+        "description": "Export case summary as text file for simulator app transcript input.",
+        "operationId": "export_case_summary_case__case_id__simulator_export_case_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Case Summary"
+      }
+    },
+    "/case/{case_id}/simulator-export/lr-matrix-csv": {
+      "get": {
+        "description": "Export feature likelihood ratio matrix as CSV for simulator app.",
+        "operationId": "export_lr_matrix_csv_case__case_id__simulator_export_lr_matrix_csv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tier_level",
+            "required": false,
+            "schema": {
+              "default": 2,
+              "title": "Tier Level",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Lr Matrix Csv"
+      }
+    },
+    "/case/{case_id}/simulator-export/lr-matrix-excel": {
+      "get": {
+        "description": "Export feature likelihood ratio matrix as Excel for simulator app.",
+        "operationId": "export_lr_matrix_excel_case__case_id__simulator_export_lr_matrix_excel_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tier_level",
+            "required": false,
+            "schema": {
+              "default": 2,
+              "title": "Tier Level",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Lr Matrix Excel"
+      }
+    },
+    "/case/{case_id}/simulator-export/prior-probabilities": {
+      "get": {
+        "description": "Export prior probabilities for specific tier as JSON for simulator app.",
+        "operationId": "export_prior_probabilities_case__case_id__simulator_export_prior_probabilities_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tier_level",
+            "required": false,
+            "schema": {
+              "default": 2,
+              "title": "Tier Level",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Prior Probabilities"
+      }
+    },
+    "/case/{case_id}/simulator-exports": {
+      "get": {
+        "description": "Get information about available simulator exports for a case.",
+        "operationId": "get_simulator_export_info_case__case_id__simulator_exports_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Simulator Export Info"
+      }
+    },
+    "/cases": {
+      "get": {
+        "operationId": "list_cases_cases_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Cases"
+      }
+    },
+    "/edit-case": {
+      "put": {
+        "description": "Update case data in editing session.",
+        "operationId": "edit_case_edit_case_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseEditRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Edit Case"
+      }
+    },
+    "/final-orders/propose": {
+      "post": {
+        "description": "Propose candidate Final Orders. Writes nothing.\n\nCandidates are suggestions; the author decides. Anything accepted is stored with\nprovenance `llm_suggested_accepted` so a reviewer can test whether model-proposed\norders behave differently from author-written ones (ADR-004).",
+        "operationId": "propose_final_orders_final_orders_propose_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeFinalOrdersRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Propose Final Orders"
+      }
+    },
+    "/finalize-case": {
+      "post": {
+        "description": "Save the edited case to the database.",
+        "operationId": "finalize_case_finalize_case_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Finalize Case"
+      }
+    },
+    "/generate-case": {
+      "post": {
+        "description": "Generate and save case in one step (legacy flow).",
+        "operationId": "generate_case_generate_case_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Generate Case"
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Deployment diagnostics: which services are reachable and which env vars are set.\n\nPorted from the pre-divergence `main` lineage, with two secret leaks removed --\nit returned the raw REDIS_URL (which carries a password) and the raw\nAPP_USERNAME (half of the basic-auth credential), and logged the Redis URL on\nerror. This endpoint is unauthenticated, so it reports only presence.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Check"
+      }
+    },
+    "/oracle/render-items": {
+      "post": {
+        "description": "The exact items a learner will see, rendered from the active stem.\n\nAn authoring UI has to show the author the sentence a learner will read, and the only\nway to do that faithfully is to render it here. The Streamlit editor rebuilt the item\nclient-side from the stem's anchors and reimplemented `default_action_phrase`, which\nhad already drifted: the copy added an article to labels like \"A-fib protocol\" that\nthe real function leaves alone. The item is the measurement instrument (ADR-005), so\nthere is exactly one renderer and clients call it.\n\nBatched because the caller renders every Final Order on the case at once, and a\nper-order round trip on each keystroke is the reason a client would reimplement this.",
+        "operationId": "render_oracle_items_oracle_render_items_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OracleItemPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Render Oracle Items"
+      }
+    },
+    "/oracle/roster": {
+      "get": {
+        "description": "The versioned panel roster and provider settings a run would use.",
+        "operationId": "get_oracle_roster_oracle_roster_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "specialty",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Specialty"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Oracle Roster"
+      }
+    },
+    "/oracle/stems": {
+      "get": {
+        "description": "Every registered rating stem, rendered side by side.\n\nExists so \"show me the proposed change before we adopt it\" is answerable from the\ncode that will actually run rather than from a document that can drift away from it.",
+        "operationId": "get_oracle_stems_oracle_stems_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Oracle Stems"
+      }
+    },
+    "/preview-case": {
+      "post": {
+        "description": "Generate case content for preview/editing without saving to database.",
+        "operationId": "preview_case_preview_case_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Preview Case"
+      }
+    },
+    "/regenerate-lrs": {
+      "post": {
+        "description": "Regenerate feature likelihood ratios for a session using strict bucket names.\n\nPorted from the pre-divergence `main` lineage with two changes: it now requires\nauth (it spends LLM budget and mutates session state, so it belongs with the\nother mutating endpoints), and it uses the async LLM wrapper so the call does\nnot block the event loop.",
+        "operationId": "regenerate_lrs_regenerate_lrs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegenerateLRRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegenerateLRResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Regenerate Lrs"
+      }
+    },
+    "/session/{session_id}": {
+      "get": {
+        "description": "Retrieve current session data for editing.",
+        "operationId": "get_session_data_session__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Get Session Data"
+      }
+    },
+    "/sim-ready/case/{case_id}": {
+      "get": {
+        "description": "Retrieve a single sim-ready case.",
+        "operationId": "get_sim_ready_case_sim_ready_case__case_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimReadyCaseDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Sim Ready Case"
+      },
+      "put": {
+        "description": "Save an edited case, as a new version by default.\n\nUntil 2026-07-30 this only ever overwrote the row, which contradicted ADR-003 and had\ntwo consequences an author could not see: an edit left no record that it happened, so\nlearner runs from before and after it were pooled; and the structured record kept\ndescribing the pre-edit case, which blocked the Oracle with no obvious way forward.\n\n`save_mode=\"in_place\"` keeps the old behaviour for corrections, and says so.",
+        "operationId": "update_sim_ready_case_sim_ready_case__case_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimReadyCaseUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Update Sim Ready Case"
+      }
+    },
+    "/sim-ready/case/{case_id}/adopt": {
+      "post": {
+        "description": "Give a pre-authoring-record case its first version, read from its markdown.\n\nEvery Final Orders and Oracle path resolves through the latest `case_version` for a\nsimulator case row. Cases finalized before that table existed have none, so they were\na dead end: Final Orders could not attach, the Oracle 404'd, and `/resync` \u2014 the one\npath that rebuilds a structured record from markdown \u2014 could not help either, because\nit starts from a version there is none of.\n\nThis is the way in. It reconstructs the structured record from the document the\nsimulator already serves and writes it as v1 of a new family.\n\nTwo things it cannot recover, both reported rather than papered over: the diagnostic\nframework and the likelihood ratios were never stored for these cases, so the version\nstarts with none; and any clinical detail the markdown does not state is reconstructed\nby the model, so the case needs a read-through afterwards.",
+        "operationId": "adopt_case_into_authoring_sim_ready_case__case_id__adopt_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdoptCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Adopt Case Into Authoring"
+      }
+    },
+    "/sim-ready/case/{case_id}/analysis": {
+      "get": {
+        "description": "Diagnostic framework + likelihood ratios for a sim-ready case.\n\nBefore ADR-001 this data existed only in Streamlit session state and was lost on\nrefresh. The Export tab should prefer this endpoint over in-memory state.",
+        "operationId": "get_sim_ready_case_analysis_sim_ready_case__case_id__analysis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Sim Ready Case Analysis"
+      }
+    },
+    "/sim-ready/case/{case_id}/copy": {
+      "post": {
+        "description": "Fork an edited case into a new simulator row and a new case family.\n\nDistinct from saving a new version: a version is the same case concept edited, and\nlearner performance across its versions is comparable in a way performance across a\nfork is not. Lineage is still recorded via `parent_version_id`, across families.",
+        "operationId": "copy_sim_ready_case_sim_ready_case__case_id__copy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimReadyCaseCopyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Copy Sim Ready Case"
+      }
+    },
+    "/sim-ready/case/{case_id}/final-orders": {
+      "get": {
+        "description": "Final Orders for a case, resolved through its latest version.\n\nUnauthenticated because the simulator reads this on every case load. It returns\nauthor-written configuration, no learner data and no diagnosis.",
+        "operationId": "get_case_final_orders_sim_ready_case__case_id__final_orders_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Case Final Orders"
+      },
+      "put": {
+        "description": "Replace the Final Orders on a case's latest version.\n\nEditing was requested from the start rather than deferred: post-finalization editing\nwas the top item from the March feedback, and shipping Final Orders that cannot be\nedited would immediately reopen it.",
+        "operationId": "update_case_final_orders_sim_ready_case__case_id__final_orders_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinalOrdersUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Update Case Final Orders"
+      }
+    },
+    "/sim-ready/case/{case_id}/oracle": {
+      "get": {
+        "description": "Current Oracle distributions and item-quality flags for a case.\n\nAggregates are recomputed from the per-rating rows on every read, so the scoring rule\ncan change without regenerating any model output.",
+        "operationId": "get_case_oracle_sim_ready_case__case_id__oracle_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Case Oracle"
+      }
+    },
+    "/sim-ready/case/{case_id}/oracle/preflight": {
+      "get": {
+        "description": "Everything checkable before spending a model call.\n\nShows the author the exact blinded context the panel will see, the leak-audit\nverdict, the rendered items, and the roster. `ready: false` with reason\n`diagnosis_leak` is blocking \u2014 a warning here would be dismissed, and the resulting\ndistribution would look valid while measuring nothing.",
+        "operationId": "oracle_preflight_sim_ready_case__case_id__oracle_preflight_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Oracle Preflight"
+      }
+    },
+    "/sim-ready/case/{case_id}/oracle/run": {
+      "post": {
+        "description": "Queue the Oracle panel for every Final Order on a case.\n\nReturns immediately with runs pending; poll `GET .../oracle`. Refuses when the case\nhas no Final Orders and when the leak audit fails, so neither condition can be\ndiscovered after 75 calls have been spent.\n\nA failing leak audit can be overridden only by stating a reason, which is stored on\nevery run it produces. That exists because the audit has legitimate false positives \u2014\n\"CVA\" under Family History is the father's history, not this patient's diagnosis \u2014\nand the alternative to a recorded override is an author who stops trusting the check.",
+        "operationId": "run_oracle_sim_ready_case__case_id__oracle_run_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/OracleRunRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Run Oracle"
+      }
+    },
+    "/sim-ready/case/{case_id}/resync": {
+      "post": {
+        "description": "Rebuild the structured record from the case's current markdown, as a new version.\n\nEditing case content leaves the structured record behind, which blocks the Oracle\nbecause its blinded view is built from that record (ADR-017). This is the supported\nway back: re-read the document the simulator now serves, write it as a new version\nwith lineage, and carry the framework, likelihood ratios, and Final Orders forward.\n\nDeliberately author-initiated. It spends a model call and reconstructs any field the\nmarkdown does not state, so it is not something to do silently on every save.",
+        "operationId": "resync_case_structured_sim_ready_case__case_id__resync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Resync Case Structured"
+      }
+    },
+    "/sim-ready/case/{case_id}/structured": {
+      "get": {
+        "description": "The canonical structured record for a case's latest version (ADR-002).\n\nADR-002 makes this record the source of truth and `case_details.content` its\nprojection, but nothing could read it back out: it was written on save and only ever\nconsumed in-process. An editor cannot edit fields it cannot fetch, which is why\nediting markdown and re-reading it with a model call was the only path available.\n\n`parity_broken` is returned alongside rather than left for the caller to derive.\nAn editor has to show that state continuously, because the way an author discovers\nit today is the Oracle refusing to run (ADR-017), long after the edit that caused it.",
+        "operationId": "get_sim_ready_case_structured_sim_ready_case__case_id__structured_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredRecordResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Sim Ready Case Structured"
+      },
+      "put": {
+        "description": "Save structured field edits; the renderer writes the markdown (ADR-002).\n\nThe inversion. `PUT /sim-ready/case/{id}` takes markdown, writes it to the simulator\nrow, and then pays for a model call to read it back into the structured record, which\ncan fail and leave the version detached. This path has no such gap: the structured\nrecord arrives as the input, the renderer derives the markdown from it, and the two\nare written together from the same source in the same transaction. Parity is restored\nby construction, including for a case that was previously detached.\n\nAlways a new version. There is no `in_place` mode here on purpose: in-place exists for\ncorrections an author does not want recorded, and a structured edit is by definition a\nchange to the canonical record (ADR-003, ADR-019).",
+        "operationId": "update_sim_ready_case_structured_sim_ready_case__case_id__structured_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimReadyStructuredUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Update Sim Ready Case Structured"
+      }
+    },
+    "/sim-ready/cases": {
+      "get": {
+        "description": "List all sim-ready cases from the simulator database.",
+        "operationId": "list_sim_ready_cases_sim_ready_cases_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CaseListItemResponse"
+                  },
+                  "title": "Response List Sim Ready Cases Sim Ready Cases Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Sim Ready Cases"
+      }
+    }
+  }
+}
