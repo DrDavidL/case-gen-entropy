@@ -258,6 +258,74 @@ That is what let one case's image links leak into another.
 - [ ] Save-as-new with variable substitution; `parent_version_id` lineage
 - [ ] Raw-markdown override sets `render_detached` and warns at the moment of detaching
 
+### The editor is a React SPA — sequenced plan `ADR-020`
+
+Planned 2026-07-31. Read `ADR-020` for why this is not Streamlit.
+
+**Phase 4a — backend, no UI. Built 2026-07-31, not yet deployed.** The canonical record was
+write-only from outside the process, so no editor could exist in any framework until these
+landed. All of it is usable from the current Streamlit UI, so 4a stands on its own.
+
+- [x] `GET /sim-ready/case/{id}/structured` — returns `content_structured` plus `parity_broken` /
+      `parity_reason`, so an editor can show parity state continuously instead of the author
+      discovering it when the Oracle refuses to run
+- [x] `PUT /sim-ready/case/{id}/structured` — the `ADR-002` inversion. Renders **before** any
+      write, so a renderer failure is a 422 and never leaves the simulator row disagreeing with
+      the structured record. Always a new version; no `in_place` mode, because a structured edit
+      is by definition a change to the canonical record. Costs no model call, and clears
+      `render_detached` by construction
+- [x] Export tab reads `/analysis` and `/structured`, falling back to session state and saying
+      which copy it used. Was a live bug: the data has been in Postgres since `ADR-001`
+- [x] `POST /oracle/render-items` replaces the client-side mirror. **The mirror had already
+      drifted** — it rendered `A-fib protocol` as "ordering *a* a-fib protocol" where the real
+      `default_action_phrase` gives "ordering a-fib protocol", so authors were reviewing a
+      sentence learners would not see
+- [x] `extract_door_chart_section()` deleted (defined, never called)
+- [x] **Write path exercised end to end** (2026-07-31) on a disposable case created and deleted
+      by the test: 26 assertions covering version lineage, framework/LR/Final Orders carry-forward,
+      `case_details.content` matching `content_rendered` byte for byte, the Door Chart delimiter
+      surviving, idempotent content on re-save, and parity repair on a detached version. Residual
+      rows verified zero afterwards. Reads, 401, 422, and 404 verified separately
+- [ ] **`PUT /structured` and `POST /resync` both repair parity, but one destroys work.** The
+      test confirmed a structured save overwrites hand-edited markdown: the edit is gone, silently
+      and by design, because the record is canonical (`ADR-002`). `/resync` does the opposite —
+      it folds the hand edits *into* the record with a model call. Both are correct operations and
+      they are not interchangeable, so the editor must never present them as one button, and the
+      structured save needs a confirmation when `render_detached` is true. **Build this in 4c
+      before the editor ships**, not after an author loses an evening's markdown
+- [ ] JWT login endpoint. **Do not remove HTTP Basic when adding it** — the Streamlit UI
+      authenticates with Basic and stays live until 4e, so the two must coexist through the
+      transition. `ADR-020` says auth "moves" to JWT; the move completes at cutover, not here
+
+**Phase 4b — SPA shell.** Vite, React 19, Tailwind 4, react-router, mirroring `direct-sim`.
+
+- [ ] Scaffold; add `openapi-typescript` as a dev dependency and a script that regenerates the
+      committed types from the OpenAPI schema `ADR-020`
+- [ ] Case list, read-only case view, build footer. Least risky screens first, to prove auth, the
+      API client, and deploy before touching the editor
+
+**Phase 4c — the structured editor.** The actual job. ~45 scalar fields across ten nested groups
+plus three dynamic lists (`history_questions`, `physical_exam_findings`, `diagnostic_workup`).
+
+- [ ] One `Field`/`FieldGroup` primitive pair driven off the generated types, not 45 hand-written
+      inputs
+- [ ] Rendered-markdown preview pane, server-rendered so one renderer stays authoritative
+- [ ] Dynamic list rows keyed by stable id. This is the specific thing Streamlit could not do
+      safely — see the `sim_image_links` leak in `CLAUDE.md`
+- [ ] Detach action shows the `ADR-002` warning **before** detaching, not after
+- [ ] Surface content-parity state continuously. `check_content_parity()` blocks the Oracle when
+      structured and markdown diverge; structured-first editing makes that rare but the detach
+      path still produces it, and discovering it at Oracle time is too late
+
+**Phase 4d — remaining screens.** Generate form, Final Orders editor, Oracle view (histograms,
+preflight, leak audit), Export. All against endpoints that already exist.
+
+**Phase 4e — cutover.** FastAPI serves `frontend/dist` as `direct-sim/Dockerfile.react` does.
+
+- [ ] Retire the `casegen-frontend` container app. Its removal makes the frontend/backend
+      build-stamp drift warning structurally impossible rather than monitored — see
+      "Deploy integrity" below and `ADR-012`
+
 ## Phase 5 — LR transparency and re-assessment
 
 - [ ] LR editing UI with provenance display `ADR-007`
@@ -426,6 +494,18 @@ Standard registry in `lab-simulation` and may serve other projects.
       `npm audit fix` touches 34 packages with no major bumps. Deferred because broad dependency
       upgrades are not a default action — needs a deliberate call, ideally the targeted
       `react-router-dom` bump first, then `npm run build` and an SPA smoke test.
+- [ ] **Do the `react-router-dom` bump on or after 2026-08-04.** Checked 2026-07-31: the fix is
+      `7.18.2`, published 2026-07-28, so it is inside the 7-day rule until Aug 4. `7.18.1`
+      (2026-06-29) is old enough but still inside the advisory's vulnerable range, so it fixes
+      nothing. `vite 8.2.0` (2026-07-30) clears on Aug 6; `postcss 8.5.25` on Aug 5, and note
+      postcss is pinned by an explicit `overrides` block in `frontend/package.json` so the bump
+      has to edit that. Of the four, **only `react-router` ships to the browser** — vite and
+      postcss are build-time and `js-yaml` is dev-only through eslint, so the browser-facing bump
+      is the one that matters and can go alone.
+- [ ] **The pre-push `npm audit --audit-level=high` gate is currently being pushed past by hand**
+      (2026-07-31, the transcript fix). That is survivable once for an unrelated commit, but a
+      gate routinely bypassed is not a gate. The bump above is what restores it — until then,
+      every push to `direct-sim` needs the same manual override, which is the actual cost.
 - [ ] A formatting-only commit (`542c08e`) is committed but unpushed in `direct-sim`, blocked
       behind the same audit gate.
 

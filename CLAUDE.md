@@ -13,6 +13,39 @@
 > **Documentation map:** `docs/README.md` — routing table for deep reference, loaded on demand.
 > **Planned work:** `ToDos.md`. **Companion repo:** `../direct-sim` (simulator, shared database).
 
+## Push back before building
+
+Say plainly when a decision is unsustainable or against best practice, including when it is the
+author's decision. Name the recommended option and what the alternative costs concretely. Do not
+present a real tradeoff as a neutral choice, and do not let a permission request ("may I add this
+dependency?") read as neutral when you already know the answer. Then build what the author
+decides, noting the assumption.
+
+This repo's own history is the argument. Every expensive item in `Decisions.md` was cheap at the
+moment it was chosen and expensive by the time it surfaced:
+
+- **ADR-012** — a mutable `:v1` image tag made `az containerapp update` a silent no-op. Deploys
+  reported success while the backend served a four-month-old image, from 2026-03-10 to
+  2026-07-28. Nobody decided to do that; it was the default nobody questioned.
+- **ADR-001** — the sim-ready path generated the diagnostic framework and full LR matrix, then
+  discarded them into `st.session_state`. Every case paid for the analysis and threw it away, and
+  the two databases could not be joined to recover it.
+- **The `sim_image_links` leak** — state initialised with `if "key" not in st.session_state`
+  carried one case's image links into another and saved them.
+
+Two things in this system make silent failure especially costly, so weigh them heavily:
+
+- **The Oracle is a measurement instrument.** Changing the rating stem invalidates every
+  distribution generated under the old wording. Anything that alters what the panel is asked, or
+  lets it rate a case the learner will not see, is a correctness problem and not a preference.
+- **`case_details` is shared with the simulator.** A schema or content change here reaches
+  learners through `../direct-sim`. Cross-repo blast radius deserves the objection stated up
+  front, not a note at the end.
+
+Settled questions live in `Decisions.md` as ADRs. Check it before reopening one, and if a
+decision genuinely should be revisited, say so and mark the old ADR `SUPERSEDED` rather than
+quietly building against the new view.
+
 ## Project Overview
 
 Medical Case Generator: an AI-powered system that creates educational emergency medicine cases with tiered diagnostic frameworks and evidence-based likelihood ratios. Supports two output formats: **Sim-Ready** (default, writes to a simulator-compatible database) and **Beta** (full LR/entropy schema). Backend is FastAPI, frontend is Streamlit, deployed via Docker to Azure Container Apps.
@@ -37,7 +70,7 @@ backend/
     llm_service.py     — LLMService class: beta + sim-ready LLM calls, _sim_ready_to_case_details adapter
     auth.py            — HTTP Basic Auth (env-based credentials)
     simulator_export.py — Pandas-based export to CSV/Excel/JSON/text (beta format only)
-    sim_ready_transform.py — render_sim_ready_content(), default builders, extract_door_chart_section()
+    sim_ready_transform.py — render_sim_ready_content(), default builders, coerce_json_field()
 frontend/
   app.py               — Streamlit UI (4 tabs: Generate, Edit, View, Export) with output format selector.
                          Sim-ready Edit: split content editor (Clinical Dashboard / Door Chart), native
@@ -247,7 +280,10 @@ prefixed `casegen-`.
 | POST | `/sim-ready/case/{id}/oracle/run` | * | Queue the Oracle panel (background) |
 | GET | `/sim-ready/case/{id}/oracle` | No | Distributions + item-quality flags |
 | POST | `/sim-ready/case/{id}/resync` | * | Rebuild the structured record from edited markdown as a new version |
+| GET | `/sim-ready/case/{id}/structured` | No | The canonical structured record + parity state `ADR-002` |
+| PUT | `/sim-ready/case/{id}/structured` | * | Save structured fields; renderer writes the markdown `ADR-002` |
 | GET | `/oracle/stems` | No | Both rating-stem versions, rendered side by side |
+| POST | `/oracle/render-items` | No | Render learner items for a set of orders from the active stem |
 | GET | `/oracle/roster` | No | Versioned panel roster + provider settings |
 
 ## Final Orders and the Oracle panel

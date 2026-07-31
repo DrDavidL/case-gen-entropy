@@ -3,6 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from backend.models.schemas import CaseInput
+from backend.models.structured_outputs import SimReadyCaseDetailsStructured
 
 
 class CasePreviewResponse(BaseModel):
@@ -152,6 +153,55 @@ class SimReadyCaseUpdateRequest(BaseModel):
     # only the learner tasks or the Final Orders needs no model call, and an edit to the
     # case document does. True/False force it either way.
     resync_structured: bool | None = None
+
+
+class OracleItemPreviewRequest(BaseModel):
+    """Render the learner-facing items for a set of Final Orders.
+
+    Exists so no client reimplements the stem. Batched over `orders` because the authoring
+    UI previews every order on the case together, and a per-order round trip is exactly
+    the friction that makes reimplementing it look reasonable.
+    """
+
+    orders: list[FinalOrderInput] = Field(
+        default_factory=list, max_length=MAX_FINAL_ORDERS
+    )
+    stem_version: str | None = Field(
+        default=None,
+        description="Null uses the backend's active stem. Pass a version only to preview "
+        "an alternative; the panel always runs the configured one.",
+    )
+
+
+class SimReadyStructuredUpdateRequest(BaseModel):
+    """Save structured field edits. The renderer produces the markdown (ADR-002).
+
+    The inverse of `SimReadyCaseUpdateRequest`, which takes markdown in and spends a model
+    call re-reading it back into the record. Here the record *is* the input, so there is
+    nothing to re-read: rendering is deterministic, the projection cannot drift from its
+    source, and the save costs no LLM call at all.
+
+    `content_structured` is typed rather than a free dict on purpose. It is the contract
+    the generated frontend types are built from (ADR-020), so a field renamed in
+    `SimReadyCaseDetailsStructured` has to surface as a validation error here and a type
+    error there, instead of as a key that silently stops arriving.
+    """
+
+    content_structured: SimReadyCaseDetailsStructured
+
+    # Editable alongside the clinical record because they live on the same screen. Null
+    # means "leave as is" for each, so a caller can save the case document without
+    # restating the simulator fields.
+    saved_name: str | None = None
+    custom_input: dict[str, Any] | None = None
+    custom_evaluation: dict[str, Any] | None = None
+    allow_orders: bool | None = None
+    learner_tasks: str | None = None
+
+    # Metadata carried on the version rather than the simulator row.
+    description: str | None = None
+    primary_diagnosis: str | None = None
+    oracle_specialty: str | None = None
 
 
 class SimReadyCaseCopyRequest(BaseModel):

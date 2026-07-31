@@ -139,19 +139,6 @@ def build_default_learner_tasks() -> str:
 7. **Answer any questions the patient may have to the best of your ability.**"""
 
 
-def extract_door_chart_section(content: str) -> str:
-    """
-    Parses rendered content markdown and extracts the Door Chart section
-    (everything after '## PATIENT DOOR CHART and Learner Instructions').
-    Returns the section as a string, or empty string if not found.
-    """
-    marker = "## PATIENT DOOR CHART and Learner Instructions"
-    idx = content.find(marker)
-    if idx == -1:
-        return ""
-    return content[idx:]
-
-
 def coerce_json_field(value, default=None):
     """Return a dict for a case_details JSON column, whatever shape it holds.
 

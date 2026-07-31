@@ -129,42 +129,42 @@ def _oracle_stems():
         return {}
 
 
-def _render_learner_item(action):
-    """The exact item a learner will see, rendered from the backend's active stem."""
-    registry = _oracle_stems()
-    version = registry.get("default_stem_version")
-    stem = (registry.get("stems") or {}).get(version)
-    if not stem:
-        return (
-            "(Could not reach the backend to render the item. It will use the stem "
-            "version configured there.)"
+def _rendered_learner_items(orders):
+    """The exact items learners will see, rendered by the backend.
+
+    This used to be built here, from the registry's anchors plus a local copy of
+    `default_action_phrase`. The copy had already drifted: it added an article to labels
+    the real function leaves alone, so the sentence an author reviewed was not always the
+    sentence the panel and the learner were given. The stem is the measurement instrument
+    (ADR-005), so it has one renderer.
+
+    Returns a dict keyed by each order's `_uid`, not by list position: blank rows are not
+    sent, so response position does not line up with the editor's rows, and two orders can
+    share a label while the author is still typing. Returns {} when the backend is
+    unreachable, so the caller shows nothing rather than a locally invented approximation.
+    """
+    sent = [o for o in orders if (o.get("order_text") or "").strip()]
+    if not sent:
+        return {}
+    try:
+        r = requests.post(
+            f"{BACKEND_URL}/oracle/render-items",
+            json={
+                "orders": [
+                    {
+                        "order_text": o["order_text"],
+                        "stem_action": (o.get("stem_action") or "").strip() or None,
+                    }
+                    for o in sent
+                ]
+            },
+            timeout=10,
         )
-    lines = [str(stem.get("learner_lead", "")).replace("{action}", action), ""]
-    for value, label in stem.get("anchors", []):
-        prefix = f"{value:+d}" if value != 0 else " 0"
-        lines.append(f"  {prefix} = {label}")
-    if stem.get("has_info_deficit_checkbox"):
-        lines += [
-            "",
-            "  [ ] My rating would change substantially with information I was not able",
-            "      to obtain during this encounter.",
-        ]
-    return "\n".join(lines)
-
-
-def _action_phrase(order_text, stem_action):
-    """Mirror of backend.utils.oracle_stems.default_action_phrase for the live preview."""
-    explicit = (stem_action or "").strip()
-    if explicit:
-        return explicit
-    label = (order_text or "").strip().rstrip(".")
-    if not label:
-        return ""
-    lowered = label[0].lower() + label[1:]
-    if label.split()[0].lower().endswith("ing"):
-        return lowered
-    article = "" if label.split()[0].lower() in ("a", "an", "the") else "a "
-    return f"ordering {article}{lowered}"
+        r.raise_for_status()
+        items = r.json().get("items", [])
+    except requests.exceptions.RequestException:
+        return {}
+    return {o["_uid"]: item for o, item in zip(sent, items, strict=False)}
 
 
 def _blank_final_order():
@@ -333,6 +333,49 @@ def _load_final_orders_from_db(case_id):
         return data.get("oracle_specialty")
     except requests.exceptions.RequestException:
         return None
+
+
+def _load_persisted_analysis(case_id):
+    """Framework, LRs, and the structured record for a saved case, from the database.
+
+    Returns `(payload, note)`. `payload` is None when nothing could be read at all, and
+    `note` is a sentence for the author explaining what is missing and why, so they can
+    tell which copy they are exporting instead of guessing.
+
+    Two endpoints because the analysis and the clinical record are separate concerns:
+    `/analysis` carries the framework and LRs, `/structured` carries the case record. A
+    case can legitimately have the second and not the first — cases adopted under ADR-019
+    were reconstructed from markdown and their original analysis is gone — so a missing
+    `/analysis` is not treated as a missing case.
+    """
+    payload = {}
+    notes = []
+    try:
+        r = requests.get(f"{BACKEND_URL}/sim-ready/case/{case_id}/analysis", timeout=30)
+        if r.status_code == 200:
+            payload.update(r.json())
+        elif r.status_code == 404:
+            notes.append(
+                "This case has no stored analysis; it predates the authoring record or "
+                "was adopted from existing markdown."
+            )
+        elif r.status_code == 503:
+            notes.append("Authoring persistence is unavailable on this backend.")
+    except requests.exceptions.RequestException:
+        notes.append("Could not reach the backend for the stored analysis.")
+
+    try:
+        r = requests.get(
+            f"{BACKEND_URL}/sim-ready/case/{case_id}/structured", timeout=30
+        )
+        if r.status_code == 200:
+            record = r.json()
+            payload["content_structured"] = record.get("content_structured", {})
+            payload.setdefault("version", record.get("version"))
+    except requests.exceptions.RequestException:
+        pass
+
+    return (payload or None), (" ".join(notes) or None)
 
 
 def _run_oracle(case_id, override_key=None):
@@ -1152,6 +1195,26 @@ with tab2:
             if not orders:
                 st.info("No Final Orders on this case.")
 
+            # One render call for every order, before the row loop. Read through
+            # st.session_state rather than the stored dicts: on this rerun those still
+            # hold the previous run's values, because the loop below is what copies the
+            # widgets back into them. Using them here would show the author the item for
+            # what they typed one keystroke ago.
+            rendered_items = _rendered_learner_items(
+                [
+                    {
+                        "_uid": o["_uid"],
+                        "order_text": st.session_state.get(
+                            f"fo_text_{o['_uid']}", o.get("order_text", "")
+                        ),
+                        "stem_action": st.session_state.get(
+                            f"fo_action_{o['_uid']}", o.get("stem_action", "")
+                        ),
+                    }
+                    for o in orders
+                ]
+            )
+
             for order in orders:
                 uid = order["_uid"]
                 label = order.get("order_text") or "New Final Order"
@@ -1179,12 +1242,10 @@ with tab2:
                         "and consults, where 'ordering <label>' reads wrong.",
                     )
 
-                    action = _action_phrase(
-                        order.get("order_text", ""), order.get("stem_action")
-                    )
-                    if action:
+                    preview = rendered_items.get(uid)
+                    if preview:
                         st.caption("The learner will read:")
-                        st.code(_render_learner_item(action), language="text")
+                        st.code(preview["learner_item"], language="text")
 
                     order["suppress_results"] = st.checkbox(
                         "Withhold the result during the encounter",
@@ -2038,10 +2099,30 @@ with tab4:
 
             with col2:
                 st.subheader("Diagnostic Data Files")
-                # LR and framework data from session (generated but not persisted to beta DB)
-                framework_data = gen_case.get("diagnostic_framework", [])
-                lr_data = gen_case.get("feature_likelihood_ratios", [])
-                case_details_data = gen_case.get("case_details", {})
+                # Persisted first, session state only as a fallback. This data has been in
+                # the database since ADR-001; reading it from `st.session_state` meant a
+                # refresh or a reopened case lost exports that were sitting in Postgres.
+                analysis, note = _load_persisted_analysis(case_id)
+                stored = analysis or {}
+                framework_data = stored.get("diagnostic_framework") or gen_case.get(
+                    "diagnostic_framework", []
+                )
+                lr_data = stored.get("feature_likelihood_ratios") or gen_case.get(
+                    "feature_likelihood_ratios", []
+                )
+                case_details_data = stored.get("content_structured") or gen_case.get(
+                    "case_details", {}
+                )
+
+                if stored.get("diagnostic_framework"):
+                    st.caption(
+                        f"Loaded from the case record (version {stored.get('version')}). "
+                        "This no longer depends on the generation session."
+                    )
+                elif framework_data or lr_data:
+                    st.caption(
+                        "Loaded from this session, not the case record. " + (note or "")
+                    )
 
                 if framework_data or lr_data:
                     st.download_button(
@@ -2081,9 +2162,9 @@ with tab4:
                     )
                 else:
                     st.warning(
-                        "Diagnostic framework and likelihood ratio data is only available "
-                        "for export immediately after case generation. If you navigated away, "
-                        "this data is no longer in memory."
+                        "No diagnostic framework or likelihood ratio data is available "
+                        "for this case. "
+                        + (note or "It is in neither the case record nor this session.")
                     )
         else:
             # --- Beta export: original LR/framework export ---

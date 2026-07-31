@@ -37,9 +37,11 @@ from backend.models.editing_schemas import (
     RegenerateLRRequest,
     RegenerateLRResponse,
     SessionData,
+    OracleItemPreviewRequest,
     SimReadyCaseCopyRequest,
     SimReadyCasePreviewResponse,
     SimReadyCaseUpdateRequest,
+    SimReadyStructuredUpdateRequest,
 )
 from backend.models.schemas import (
     CaseInput,
@@ -1205,6 +1207,201 @@ async def get_sim_ready_case_analysis(case_id: int):
         sim_db.close()
 
 
+@app.get("/sim-ready/case/{case_id}/structured")
+async def get_sim_ready_case_structured(case_id: int):
+    """The canonical structured record for a case's latest version (ADR-002).
+
+    ADR-002 makes this record the source of truth and `case_details.content` its
+    projection, but nothing could read it back out: it was written on save and only ever
+    consumed in-process. An editor cannot edit fields it cannot fetch, which is why
+    editing markdown and re-reading it with a model call was the only path available.
+
+    `parity_broken` is returned alongside rather than left for the caller to derive.
+    An editor has to show that state continuously, because the way an author discovers
+    it today is the Oracle refusing to run (ADR-017), long after the edit that caused it.
+    """
+    if not AUTHORING_ENABLED:
+        raise HTTPException(status_code=503, detail="Authoring schema is not available")
+
+    sim_db = next(get_sim_ready_db())
+    try:
+        version = final_orders_store.latest_version_for_case_detail(sim_db, case_id)
+        if version is None:
+            raise HTTPException(
+                status_code=404,
+                detail="This case has no authoring record, so it has no structured "
+                "record to edit. Adopt it first: POST /sim-ready/case/"
+                f"{case_id}/adopt",
+            )
+        parity = oracle_service.check_content_parity(sim_db, version)
+        snapshot = snapshot_version(version)
+    finally:
+        sim_db.close()
+
+    return {
+        "case_id": case_id,
+        "case_version_id": snapshot["version_id"],
+        "case_family_id": snapshot["family_id"],
+        "version": snapshot["version"],
+        "title": snapshot["title"],
+        "description": snapshot["description"],
+        "primary_diagnosis": snapshot["primary_diagnosis"],
+        "oracle_specialty": snapshot["oracle_specialty"],
+        "content_structured": snapshot["content_structured"],
+        "content_rendered": snapshot["content_rendered"],
+        "render_detached": snapshot["render_detached"],
+        "parity_broken": not parity["in_parity"],
+        "parity_reason": parity["reason"],
+        "parity_message": parity["message"],
+    }
+
+
+@app.put("/sim-ready/case/{case_id}/structured")
+async def update_sim_ready_case_structured(
+    case_id: int,
+    update: SimReadyStructuredUpdateRequest,
+    credentials: str = Depends(verify_credentials),
+):
+    """Save structured field edits; the renderer writes the markdown (ADR-002).
+
+    The inversion. `PUT /sim-ready/case/{id}` takes markdown, writes it to the simulator
+    row, and then pays for a model call to read it back into the structured record, which
+    can fail and leave the version detached. This path has no such gap: the structured
+    record arrives as the input, the renderer derives the markdown from it, and the two
+    are written together from the same source in the same transaction. Parity is restored
+    by construction, including for a case that was previously detached.
+
+    Always a new version. There is no `in_place` mode here on purpose: in-place exists for
+    corrections an author does not want recorded, and a structured edit is by definition a
+    change to the canonical record (ADR-003, ADR-019).
+    """
+    if not AUTHORING_ENABLED:
+        raise HTTPException(status_code=503, detail="Authoring schema is not available")
+
+    structured = update.content_structured.model_dump()
+    try:
+        rendered = render_sim_ready_content(structured)
+    except (KeyError, TypeError) as e:
+        # A renderer failure must not reach the database. Rendering before any write is
+        # what keeps the simulator row and the structured record from disagreeing.
+        raise HTTPException(
+            status_code=422,
+            detail=f"The structured record could not be rendered: {e}",
+        ) from e
+
+    sim_db = next(get_sim_ready_db())
+    try:
+        case = (
+            sim_db.query(CaseDetailSimReady)
+            .filter(CaseDetailSimReady.id == case_id)
+            .first()
+        )
+        if not case:
+            raise HTTPException(status_code=404, detail="Sim-ready case not found")
+
+        version = final_orders_store.latest_version_for_case_detail(sim_db, case_id)
+        if version is None:
+            raise HTTPException(
+                status_code=404,
+                detail="This case has no authoring record to version. Adopt it first: "
+                f"POST /sim-ready/case/{case_id}/adopt",
+            )
+
+        snapshot = snapshot_version(version)
+        previous_orders = (
+            [
+                final_orders_store.serialize_final_order(o)
+                for o in final_orders_store.load_final_orders(sim_db, version.id)
+            ]
+            if FINAL_ORDERS_ENABLED
+            else []
+        )
+
+        title = update.saved_name or snapshot["title"]
+        case.saved_name = title
+        case.content = rendered
+        if update.custom_input is not None:
+            case.custom_input = update.custom_input
+        if update.custom_evaluation is not None:
+            case.custom_evaluation = update.custom_evaluation
+        if update.allow_orders is not None:
+            case.allow_orders = update.allow_orders
+        if update.learner_tasks is not None:
+            case.learner_tasks = update.learner_tasks
+
+        new_version = persist_case_version(
+            sim_db,
+            title=title,
+            description=(
+                update.description
+                if update.description is not None
+                else snapshot["description"]
+            ),
+            primary_diagnosis=(
+                update.primary_diagnosis
+                if update.primary_diagnosis is not None
+                else snapshot["primary_diagnosis"]
+            ),
+            case_details=structured,
+            diagnostic_framework=snapshot["diagnostic_framework"],
+            feature_likelihood_ratios=snapshot["feature_likelihood_ratios"],
+            output_format="sim_ready",
+            rendered_content=rendered,
+            # False by construction: the markdown was just produced from this record.
+            render_detached=False,
+            case_detail_id=case_id,
+            family_id=snapshot["family_id"],
+            parent_version_id=snapshot["version_id"],
+            oracle_specialty=(
+                update.oracle_specialty
+                if update.oracle_specialty is not None
+                else snapshot["oracle_specialty"]
+            ),
+        )
+
+        carried = 0
+        if previous_orders:
+            carried = len(
+                final_orders_store.replace_final_orders(
+                    sim_db, new_version.id, previous_orders
+                )
+            )
+
+        sim_db.refresh(case)
+        payload = _sim_case_payload(case)
+        logger.info(
+            "Case %d saved from structured fields as version %d (v%d) by %s: "
+            "parent=%d, %d Final Order(s) carried",
+            case_id,
+            new_version.id,
+            new_version.version,
+            credentials,
+            snapshot["version_id"],
+            carried,
+        )
+        return {
+            **payload,
+            "save_mode": "new_version",
+            "case_version_id": new_version.id,
+            "version": new_version.version,
+            "parent_version_id": snapshot["version_id"],
+            "render_detached": False,
+            "parity_broken": False,
+            "final_orders_carried_forward": carried,
+        }
+    except HTTPException:
+        sim_db.rollback()
+        raise
+    except Exception as e:
+        sim_db.rollback()
+        logger.exception("Structured save failed for case %d", case_id)
+        raise HTTPException(
+            status_code=500, detail=f"The structured save did not complete: {e}"
+        ) from e
+    finally:
+        sim_db.close()
+
+
 @app.get("/sim-ready/case/{case_id}")
 async def get_sim_ready_case(case_id: int):
     """Retrieve a single sim-ready case."""
@@ -1753,6 +1950,43 @@ async def get_oracle_stems():
             for version, stem in oracle_stems.STEMS.items()
         },
         "comparison_markdown": oracle_stems.comparison_table(),
+    }
+
+
+@app.post("/oracle/render-items")
+async def render_oracle_items(request: OracleItemPreviewRequest):
+    """The exact items a learner will see, rendered from the active stem.
+
+    An authoring UI has to show the author the sentence a learner will read, and the only
+    way to do that faithfully is to render it here. The Streamlit editor rebuilt the item
+    client-side from the stem's anchors and reimplemented `default_action_phrase`, which
+    had already drifted: the copy added an article to labels like "A-fib protocol" that
+    the real function leaves alone. The item is the measurement instrument (ADR-005), so
+    there is exactly one renderer and clients call it.
+
+    Batched because the caller renders every Final Order on the case at once, and a
+    per-order round trip on each keystroke is the reason a client would reimplement this.
+    """
+    items = []
+    for order in request.orders:
+        action = (
+            order.stem_action or ""
+        ).strip() or oracle_stems.default_action_phrase(order.order_text)
+        items.append(
+            {
+                "order_text": order.order_text,
+                "action_phrase": action,
+                "learner_item": oracle_stems.render_item(
+                    action,
+                    audience="learner",
+                    stem_version=request.stem_version,
+                    stem_template_override=order.stem_template,
+                ),
+            }
+        )
+    return {
+        "stem_version": request.stem_version or oracle_stems.DEFAULT_STEM_VERSION,
+        "items": items,
     }
 
 
