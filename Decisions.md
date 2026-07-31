@@ -660,6 +660,10 @@ Three sub-decisions, settled at the same time:
   pattern across two apps that share a database is worth more than the smaller diff of keeping
   Basic, and an SPA holding a Basic credential to replay on every request is the weaker posture.
 
+  > **This clause is deferred by `ADR-021` (2026-07-31), not reversed.** JWT remains the target;
+  > it is not what the first editor release ships. See `ADR-021` for why authenticating a single
+  > shared account with a bearer token buys nothing the password does not already give.
+
   **This adopts a known weakness deliberately.** `direct-sim` stores its token in `localStorage`
   (`frontend/src/lib/api.ts`), which any XSS on the page can read. An httpOnly, SameSite cookie
   is the better practice and is not what either app does. Matching the existing pattern was
@@ -691,3 +695,57 @@ no longer be reshaped without regenerating. The generator runs against the commi
 a live server, so a stale checkout builds rather than failing mysteriously.
 
 **See:** `ToDos.md` Phase 4, `docs/architecture-target.md` §4 and §6
+
+---
+
+## ADR-021 — The first SPA editor release authenticates with Basic from its own login form; JWT is deferred.
+
+**Status:** ACCEPTED (2026-07-31) · Defers one clause of `ADR-020`; does not reverse it
+
+**Context.** `ADR-020` settled that authentication moves from HTTP Basic to a JWT bearer token
+when the SPA editor lands. Building the editor made the cost and the benefit concrete, and they
+did not match.
+
+There is exactly **one account**. `APP_USERNAME` / `APP_PASSWORD` are single shared credentials
+set as Container Apps secrets. A JWT issued against that account authenticates the same single
+identity, so it yields:
+
+- **No per-user attribution.** Every write is still "the shared account". `panel_runs` records no
+  actor either way, and the logs record the same one username.
+- **No meaningful revocation.** Revoking the only token means changing the signing secret or the
+  password, which is what rotating `APP_PASSWORD` already does.
+
+Against that, JWT costs a new runtime dependency, a login endpoint, dual-path credential
+verification in `verify_credentials` (Basic must stay live — the Streamlit UI uses it until Phase
+4e), and token lifetime and refresh decisions. That is real surface added to the one component
+that guards writes to the shared production database, in exchange for properties that do not
+exist until there are real accounts.
+
+**Decision.** The first editor release ships a login form in the SPA that sends
+`Authorization: Basic`. No backend change, no new dependency, and `verify_credentials` is
+unchanged. The credential is held in `sessionStorage` and cleared on logout.
+
+**`APP_PASSWORD` is rotated as part of the same change.** It has been a publicly known default,
+recorded under "Security posture" as an accepted risk on the grounds that UNMC uses it broadly.
+That was defensible when the only client was a Streamlit app used by its authors. Putting a
+browser editor on it is the change that makes it indefensible, so the rotation is part of this
+work rather than a separate someday item.
+
+**What this deliberately accepts.** Basic replays the actual password on every request, where a
+bearer token is at least a revocable stand-in. In a browser, both live in `sessionStorage` or
+`localStorage` and both fall to the same XSS, so the practical gap is narrower than it sounds —
+but it is real, and it is the reason this is a deferral with a trigger rather than a new
+end state.
+
+**Revisit when any of these becomes true**, and implement `ADR-020`'s clause as written:
+
+1. More than one person needs their own credential, or writes need attribution to a named author.
+2. Access must be withdrawn from one person without disrupting everyone.
+3. The SPA is exposed to anyone outside the research group.
+
+**Why not fix it properly now.** The sustainable end state is per-user accounts with httpOnly
+`SameSite` cookies across both apps — which `ADR-020` already records as the right answer that
+neither app implements. Building single-account JWT now would be a third auth mechanism on the
+way there, not a step toward it.
+
+**See:** `ADR-020`, `ToDos.md` Phase 4c, "Security posture"

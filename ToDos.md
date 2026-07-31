@@ -441,18 +441,55 @@ Two things a fresh session needs to know here:
 - **No auth in the SPA yet, deliberately.** Every endpoint it touches is unauthenticated. JWT
   arrives in 4c with the editor, which is the first thing that needs it.
 
-**Phase 4c — the structured editor.** The actual job. ~45 scalar fields across ten nested groups
-plus three dynamic lists (`history_questions`, `physical_exam_findings`, `diagnostic_workup`).
+**Phase 4c — the structured editor. This is the release.** Sequenced 2026-07-31.
 
-- [ ] One `Field`/`FieldGroup` primitive pair driven off the generated types, not 45 hand-written
+**Release shape, decided:** ship 4c as a real authoring surface **alongside Streamlit**, which
+keeps Generate / Export / Final Orders / Oracle. They already coexist and the backend serves both.
+Full cutover (4d + 4e) waits. Rationale: structured editing is the `ADR-002` win and is worth
+having in Cory's and Alex's hands now; replicating Streamlit's other 2,333 lines first would
+delay it for screens that already work.
+
+**Where `web/` actually stands:** 424 lines of hand-written app code — `App.tsx`, `api.ts`,
+`CaseListPage`, `CaseViewPage`, `BuildFooter` — plus 2,753 generated. Two read-only pages, no
+forms, no auth. The structured record is **49 scalar fields across 10 groups** (9 top-level plus
+nested `door_chart.vital_signs`) and 3 dynamic lists.
+
+*Blockers — none of these are the editor, and all of them gate it:*
+
+- [ ] **Auth: login form sending `Authorization: Basic`** `ADR-021`. No backend change, no new
+      dependency, `verify_credentials` untouched. Credential in `sessionStorage`, cleared on
+      logout, 401 returns to login. **JWT is deferred, not cancelled** — with one shared account it
+      authenticates the same identity and revoking it equals rotating the password
+- [ ] **Rotate `APP_PASSWORD`** in the same change: Container Apps secret + `.env`, then restart
+      backend and Streamlit together. It is a publicly known default and the only gate on writes to
+      the shared production database; a browser editor is what makes that indefensible `ADR-021`
+- [ ] **A render-preview endpoint.** 4c wants a server-rendered preview so one renderer stays
+      authoritative, and **none exists**: `/preview-case` costs a model call and
+      `/oracle/render-items` only renders stems. Needs a write-nothing POST that takes a structured
+      record and returns markdown. Give it a `response_model`
+- [ ] **The `/structured` vs `/resync` confirmation.** A structured save silently overwrites
+      hand-edited markdown — correct per `ADR-002`, and destructive. Build it **before** the editor
+      ships, not after an author loses an evening's work. The two are not interchangeable and must
+      never be one button
+
+*The editor itself:*
+
+- [ ] One `Field`/`FieldGroup` primitive pair driven off the generated types, not 49 hand-written
       inputs
-- [ ] Rendered-markdown preview pane, server-rendered so one renderer stays authoritative
+- [ ] Rendered-markdown preview pane, server-rendered against the endpoint above
 - [ ] Dynamic list rows keyed by stable id. This is the specific thing Streamlit could not do
       safely — see the `sim_image_links` leak in `CLAUDE.md`
 - [ ] Detach action shows the `ADR-002` warning **before** detaching, not after
 - [ ] Surface content-parity state continuously. `check_content_parity()` blocks the Oracle when
       structured and markdown diverge; structured-first editing makes that rare but the detach
       path still produces it, and discovering it at Oracle time is too late
+
+*Cheap, missing, and independent of the above:*
+
+- [ ] **CI must run `scripts/dump_openapi.py` and fail if the result is dirty.** Still not wired,
+      so a model change can land without its schema and the types silently describe the old API
+- [ ] `PUT /sim-ready/case/{id}/final-orders` needs a `response_model` so `detached_panel_runs`
+      reaches the generated types
 
 **Phase 4d — remaining screens.** Generate form, Final Orders editor, Oracle view (histograms,
 preflight, leak audit), Export. All against endpoints that already exist.
