@@ -495,12 +495,22 @@ Standard registry in `lab-simulation` and may serve other projects.
       upgrades are not a default action — needs a deliberate call, ideally the targeted
       `react-router-dom` bump first, then `npm run build` and an SPA smoke test.
 - [ ] **Unpause Dependabot. It is paused because its PRs went unmerged**, which is GitHub's
-      inactivity behaviour, and from the API it looks like a stuck runner: every historical
-      `Dependabot Updates` run is `cancelled`, and the two from 2026-07-30T23:56 sat `queued` with
-      zero steps for 15+ hours while an ordinary workflow got a runner in one second. That is why
-      there are no PRs and why the alert count went from 25 high on 2026-07-29 to 42 high on
-      2026-07-31. Unpause by interacting with a Dependabot PR, or "Check for updates" on the
-      Dependabot page.
+      inactivity behaviour. The record, checked 2026-07-31: it produced 11 PRs between
+      2025-04-24 and 2026-02-05, of which **5 merged and 6 were closed unmerged**, and then it
+      stopped entirely. That closed-unmerged ratio is what pauses it. Unpause by interacting with
+      a Dependabot PR, or "Check for updates" on the Dependabot page.
+
+      **Do not diagnose this from workflow runs.** `Dependabot Updates` runs show as `cancelled`
+      as a matter of course, and a paused job sits `queued` with zero steps indefinitely, so the
+      Actions view looks exactly like a broken or unbilled runner. Two separate wrong conclusions
+      came out of reading it that way on 2026-07-31. Check the **PR history** instead:
+      `gh pr list --state all --author "app/dependabot"` tells you in one line whether the bot has
+      ever worked and when it stopped.
+
+- [ ] Delete the 9 stale `origin/dependabot/pip/*` branches left behind by closed PRs
+      (`h11-0.16.0`, `pip-26.0`, `protobuf-5.29.5`, `protobuf-5.29.6`, `requests-2.32.4`,
+      `tornado-6.5.1`, `urllib3-2.5.0`, `urllib3-2.6.3`, `weasyprint-68.0`). Harmless, but they
+      make the remote branch list unreadable and two of them are superseded urllib3 bumps
 
       **This is upstream of the whole Aug 4 problem.** With Dependabot running, `react-router-dom`
       7.18.2 would have arrived as a PR on 2026-07-28, aged through review, and been mergeable on
