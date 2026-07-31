@@ -10,7 +10,7 @@ export default defineConfig({
     // an /api prefix, so each family is proxied explicitly. Port 5174, not 5173, so this
     // can run alongside direct-sim's dev server.
     proxy: Object.fromEntries(
-      ['/sim-ready', '/oracle', '/cases', '/case', '/session', '/preview-case',
+      ['/sim-ready', '/oracle', '/auth', '/cases', '/case', '/session', '/preview-case',
        '/edit-case', '/finalize-case', '/regenerate-lrs', '/final-orders', '/health']
         .map(p => [p, { target: 'http://localhost:8000', changeOrigin: true }]),
     ),

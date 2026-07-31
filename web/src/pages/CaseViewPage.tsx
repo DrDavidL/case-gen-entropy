@@ -87,7 +87,17 @@ export default function CaseViewPage() {
         <h2 className="text-base font-medium">
           {simCase?.saved_name?.trim() || <em className="text-slate-400">Untitled</em>}
         </h2>
-        <span className="text-xs tabular-nums text-slate-400">#{id}</span>
+        <div className="flex items-center gap-3">
+          {record && (
+            <Link
+              to={`/cases/${id}/edit`}
+              className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+            >
+              Edit fields
+            </Link>
+          )}
+          <span className="text-xs tabular-nums text-slate-400">#{id}</span>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2 text-xs">

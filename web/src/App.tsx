@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router'
 import CaseListPage from './pages/CaseListPage'
 import CaseViewPage from './pages/CaseViewPage'
+import CaseEditPage from './pages/CaseEditPage'
 import BuildFooter from './components/BuildFooter'
 import LoginGate from './components/LoginGate'
 
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/cases" replace />} />
           <Route path="/cases" element={<CaseListPage />} />
           <Route path="/cases/:caseId" element={<CaseViewPage />} />
+          <Route path="/cases/:caseId/edit" element={<CaseEditPage />} />
           <Route path="*" element={<p className="text-slate-500">Not found.</p>} />
         </Routes>
       </main>
