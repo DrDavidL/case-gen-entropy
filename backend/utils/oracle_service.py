@@ -366,6 +366,19 @@ async def run_oracle_for_case_version(
                 blinded_context_hash=context.content_hash,
                 claim_hash=panel_runner.claim_hash(rendered_item),
                 leak_override_reason=leak_override_reason,
+                item_label=order.order_text,
+                # The rendered stem, not just the fields it came from: the stem is the
+                # measurement instrument, so a run that records only `order_text` still
+                # cannot say what the panel was asked. Storing it here means a stored
+                # distribution stays interpretable without re-deriving it from a stem
+                # registry that may since have changed.
+                item_snapshot={
+                    "order_text": order.order_text,
+                    "stem_action": _action_for(order),
+                    "stem_template": order.stem_template,
+                    "provenance": order.provenance,
+                    "rendered_item": rendered_item,
+                },
             )
 
             try:

@@ -203,6 +203,38 @@ def final_orders_schema_ready(bind) -> bool:
     )
 
 
+def panel_run_snapshot_ready(bind) -> bool:
+    """Report whether `panel_runs` has the claim-snapshot columns (revision 0004).
+
+    Probed at column level rather than table level because 0004 is additive to a table
+    0003 already created. Without this, a deploy that ran ahead of the migration would
+    fail every Oracle run outright on an unknown column, turning a missing nice-to-have
+    into a total outage of the feature. Degrading to "runs work, snapshots are null"
+    keeps the same failure proportionate to what is actually missing, and matches how
+    `authoring_schema_ready` and `final_orders_schema_ready` already behave.
+    """
+    if bind is None:
+        return False
+    try:
+        columns = {
+            c["name"]
+            for c in inspect(bind).get_columns("panel_runs", schema=AUTHORING_SCHEMA)
+        }
+        missing = {"item_label", "item_snapshot"} - columns
+        if missing:
+            logger.warning(
+                "panel_runs is missing %s. Run 'alembic upgrade head' in the direct-sim "
+                "repo. Panel runs will not record what they rated, so an edited or "
+                "deleted Final Order will leave them uninterpretable.",
+                ", ".join(sorted(missing)),
+            )
+            return False
+        return True
+    except Exception as e:
+        logger.error("Could not inspect panel_runs columns: %s", str(e)[:200])
+        return False
+
+
 class CaseFamily(SimReadyBase):
     """A stable case concept, e.g. 'Dizziness — posterior circulation stroke'.
 
@@ -438,6 +470,14 @@ class PanelRun(SimReadyBase):
 
     blinded_context_hash = Column(String)
     claim_hash = Column(String)
+
+    # What this run rated, snapshotted at creation (revision 0004). `item_ref_id` is not
+    # a foreign key -- it points into a different table per `item_type` -- so the row it
+    # names can be deleted out from under a completed run. Without these, the run's
+    # meaning would go with it: `claim_hash` survives but cannot tell a reader what the
+    # panel was asked. A run must stay interpretable forever, whatever happens to the item.
+    item_label = Column(Text, nullable=True)
+    item_snapshot = Column(JSONB, nullable=True)
 
     # Set when an author ran the panel despite a failing leak audit, with their stated
     # reason. The audit blocks by default and stays blocking; this records the exception

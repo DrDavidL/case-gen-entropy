@@ -603,7 +603,7 @@ async def finalize_case(
                     and save_request.final_orders
                 ):
                     try:
-                        rows = final_orders_store.replace_final_orders(
+                        rows, _ = final_orders_store.replace_final_orders(
                             sim_db,
                             saved_version_id,
                             [fo.model_dump() for fo in save_request.final_orders],
@@ -1367,11 +1367,12 @@ async def update_sim_ready_case_structured(
 
         carried = 0
         if previous_orders:
-            carried = len(
-                final_orders_store.replace_final_orders(
-                    sim_db, new_version.id, previous_orders
-                )
+            # New version, so there is nothing to reconcile against and nothing can
+            # detach; the second element is always empty here.
+            carried_rows, _ = final_orders_store.replace_final_orders(
+                sim_db, new_version.id, previous_orders
             )
+            carried = len(carried_rows)
 
         sim_db.refresh(case)
         payload = _sim_case_payload(case)
@@ -1628,11 +1629,12 @@ async def update_sim_ready_case(
         if previous_orders:
             # Carried so the orders survive even if the caller never follows up with a
             # Final Orders write. A subsequent PUT replaces them on this same version.
-            carried = len(
-                final_orders_store.replace_final_orders(
-                    sim_db, new_version.id, previous_orders
-                )
+            # New version, so there is nothing to reconcile against and nothing can
+            # detach; the second element is always empty here.
+            carried_rows, _ = final_orders_store.replace_final_orders(
+                sim_db, new_version.id, previous_orders
             )
+            carried = len(carried_rows)
 
         logger.info(
             "Case %d saved as version %d (v%d) by %s: parent=%d, resynced=%s, "
@@ -1765,11 +1767,12 @@ async def copy_sim_ready_case(
         )
         carried = 0
         if previous_orders:
-            carried = len(
-                final_orders_store.replace_final_orders(
-                    sim_db, new_version.id, previous_orders
-                )
+            # New version, so there is nothing to reconcile against and nothing can
+            # detach; the second element is always empty here.
+            carried_rows, _ = final_orders_store.replace_final_orders(
+                sim_db, new_version.id, previous_orders
             )
+            carried = len(carried_rows)
 
         logger.info(
             "Case %d copied to %d as family %d v1 by %s (parent version %d), "
@@ -2080,7 +2083,7 @@ async def update_case_final_orders(
             sim_db.commit()
 
         try:
-            rows = final_orders_store.replace_final_orders(
+            rows, detached = final_orders_store.replace_final_orders(
                 sim_db,
                 version.id,
                 [fo.model_dump() for fo in update.final_orders],
@@ -2108,6 +2111,11 @@ async def update_case_final_orders(
             "oracle_specialty": version.oracle_specialty,
             "final_orders": [final_orders_store.serialize_final_order(r) for r in rows],
             "oracle_started": oracle_started,
+            # Non-empty when the edit removed an order that had already been rated. The
+            # runs still exist and remain readable via their snapshot, but they no longer
+            # attach to any live order, so the UI should say so rather than let a
+            # distribution quietly vanish from the case.
+            "detached_panel_runs": detached,
         }
     finally:
         sim_db.close()
@@ -2325,7 +2333,7 @@ async def resync_case_structured(
         if previous_orders:
             final_orders_store.replace_final_orders(
                 sim_db, new_version.id, previous_orders
-            )
+            )  # new version: nothing to detach
 
         logger.info(
             "Re-synced case %d: version %d -> %d (v%d), %d Final Order(s) carried forward",

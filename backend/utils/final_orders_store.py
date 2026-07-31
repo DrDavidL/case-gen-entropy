@@ -18,6 +18,7 @@ from backend.models.database import (
     CaseVersion,
     PanelRating,
     PanelRun,
+    panel_run_snapshot_ready,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,17 +50,46 @@ def serialize_final_order(order: CaseFinalOrder) -> dict[str, Any]:
     }
 
 
+def _identity_key(order_text: str) -> str:
+    """What makes two Final Orders "the same order" for the purpose of keeping its id.
+
+    The order text is the claim. `stem_action` and the suppression fields are how it is
+    phrased and matched, not what is being asked, so editing those keeps the identity and
+    keeps any panel run attached. Change the text and it is a different claim, which
+    should get a new id and should *not* inherit the old distribution.
+
+    Whitespace- and case-insensitive so that a cosmetic retype does not detach ratings.
+    """
+    return " ".join((order_text or "").split()).casefold()
+
+
 def replace_final_orders(
     db: Session,
     case_version_id: int,
     orders: list[dict[str, Any]],
-) -> list[CaseFinalOrder]:
-    """Set the Final Orders for a case version, replacing any that exist. Commits.
+) -> tuple[list[CaseFinalOrder], list[dict[str, Any]]]:
+    """Set the Final Orders for a case version. Commits.
 
-    Replace rather than merge: the author's list is the authoritative statement of what
-    the case has, and a merge would leave a deleted order silently attached. The cap is
-    re-checked here as well as in the request schema, because this is the last point
-    before the write and the Oracle cost bound (5 x 15 calls) depends on it.
+    Returns `(rows, detached)`. `detached` describes orders that were removed while
+    carrying completed panel runs, so the caller can tell the author what their edit cost.
+
+    Replace rather than merge, still: the author's submitted list is the authoritative
+    statement of what the case has, and a merge would leave a deleted order silently
+    attached. The cap is re-checked here as well as in the request schema, because this is
+    the last point before the write and the Oracle cost bound (5 x 15 calls) depends on it.
+
+    **Rows are reconciled by identity rather than deleted wholesale.** The original
+    implementation deleted every row and re-inserted with fresh ids. Because
+    `panel_runs.item_ref_id` is deliberately not a foreign key, that silently orphaned
+    every completed run for an unchanged order the moment an author added a second one —
+    no error, and nothing recording what the stored distribution had measured. Matching
+    unchanged orders to their existing rows means the ordinary edits (add an order,
+    reorder, fix a synonym, adjust the stem phrasing) now preserve rating history instead
+    of destroying it.
+
+    Deleting an order still detaches its runs, and that is correct: the author said to
+    remove it. It is reported rather than prevented, and `panel_runs.item_snapshot` keeps
+    those runs interpretable on their own (revision 0004).
     """
     if len(orders) > MAX_FINAL_ORDERS:
         raise ValueError(
@@ -69,13 +99,15 @@ def replace_final_orders(
     existing = (
         db.query(CaseFinalOrder)
         .filter(CaseFinalOrder.case_version_id == case_version_id)
+        .order_by(CaseFinalOrder.display_order, CaseFinalOrder.id)
         .all()
     )
+    unclaimed: dict[str, list[CaseFinalOrder]] = {}
     for row in existing:
-        db.delete(row)
-    db.flush()
+        unclaimed.setdefault(_identity_key(row.order_text), []).append(row)
 
-    created: list[CaseFinalOrder] = []
+    resulting: list[CaseFinalOrder] = []
+    reused = 0
     for position, order in enumerate(orders, start=1):
         text = (order.get("order_text") or "").strip()
         if not text:
@@ -85,33 +117,78 @@ def replace_final_orders(
             for s in (order.get("suppression_synonyms") or [])
             if s and str(s).strip()
         ]
-        row = CaseFinalOrder(
-            case_version_id=case_version_id,
-            display_order=order.get("display_order") or position,
-            order_text=text,
-            stem_action=((order.get("stem_action") or "").strip() or None),
-            stem_template=(order.get("stem_template") or None),
-            provenance=order.get("provenance") or "author_entered",
-            suppress_results=(
+        fields = {
+            "display_order": order.get("display_order") or position,
+            "order_text": text,
+            "stem_action": ((order.get("stem_action") or "").strip() or None),
+            "stem_template": (order.get("stem_template") or None),
+            "provenance": order.get("provenance") or "author_entered",
+            "suppress_results": (
                 True
                 if order.get("suppress_results") is None
                 else bool(order["suppress_results"])
             ),
-            suppression_message=(order.get("suppression_message") or "Result pending"),
-            suppression_synonyms=synonyms,
-        )
-        db.add(row)
-        created.append(row)
+            "suppression_message": (
+                order.get("suppression_message") or "Result pending"
+            ),
+            "suppression_synonyms": synonyms,
+        }
+
+        candidates = unclaimed.get(_identity_key(text))
+        if candidates:
+            row = candidates.pop(0)
+            for name, value in fields.items():
+                setattr(row, name, value)
+            reused += 1
+        else:
+            row = CaseFinalOrder(case_version_id=case_version_id, **fields)
+            db.add(row)
+        resulting.append(row)
+
+    detached: list[dict[str, Any]] = []
+    for leftovers in unclaimed.values():
+        for row in leftovers:
+            run_count = (
+                db.query(PanelRun)
+                .filter(
+                    PanelRun.item_type == "final_order_appropriateness",
+                    PanelRun.item_ref_id == row.id,
+                )
+                .count()
+            )
+            if run_count:
+                detached.append(
+                    {
+                        "final_order_id": row.id,
+                        "order_text": row.order_text,
+                        "panel_runs_detached": run_count,
+                    }
+                )
+            db.delete(row)
 
     db.commit()
-    for row in created:
+    for row in resulting:
         db.refresh(row)
+
     logger.info(
-        "Final Orders written: case_version=%d, %d order(s)",
+        "Final Orders written: case_version=%d, %d order(s) (%d reused, %d new, "
+        "%d removed)",
         case_version_id,
-        len(created),
+        len(resulting),
+        reused,
+        len(resulting) - reused,
+        sum(len(v) for v in unclaimed.values()),
     )
-    return created
+    if detached:
+        # Loud on purpose. This is the only path that can leave a completed panel run
+        # without a live item, and the author should be able to find out from the logs
+        # why a distribution stopped appearing in the UI.
+        logger.warning(
+            "Final Orders removed with existing panel runs: case_version=%d %s",
+            case_version_id,
+            detached,
+        )
+    return resulting, detached
 
 
 def load_final_orders(db: Session, case_version_id: int) -> list[CaseFinalOrder]:
@@ -169,8 +246,17 @@ def create_panel_run(
     blinded_context_hash: str,
     claim_hash: str,
     leak_override_reason: str | None = None,
+    item_label: str | None = None,
+    item_snapshot: dict[str, Any] | None = None,
 ) -> PanelRun:
-    """Open a run in `pending`. Commits so a status endpoint can see it immediately."""
+    """Open a run in `pending`. Commits so a status endpoint can see it immediately.
+
+    `item_label` / `item_snapshot` record what is being rated, so the run stays readable
+    even if the item row is later edited away — `item_ref_id` is not a foreign key and
+    cannot protect it. Written only when revision 0004 is present; without it the run is
+    still created, just without its snapshot, because losing the Oracle entirely over a
+    missing audit field would be the worse failure.
+    """
     run = PanelRun(
         item_type=item_type,
         item_ref_id=item_ref_id,
@@ -190,6 +276,9 @@ def create_panel_run(
         leak_override_reason=leak_override_reason,
         status="pending",
     )
+    if panel_run_snapshot_ready(db.get_bind()):
+        run.item_label = item_label
+        run.item_snapshot = item_snapshot
     db.add(run)
     db.commit()
     db.refresh(run)
@@ -313,6 +402,10 @@ def serialize_run(run: PanelRun, *, include_ratings: bool = False) -> dict[str, 
         "roster_specialty": run.roster_specialty,
         "blinded_context_hash": run.blinded_context_hash,
         "claim_hash": run.claim_hash,
+        # What was rated, as it stood when the panel ran. Null on runs written before
+        # revision 0004, and on any run whose snapshot could not be recovered.
+        "item_label": run.item_label,
+        "item_snapshot": run.item_snapshot,
         "leak_override_reason": run.leak_override_reason,
         "superseded_by": run.superseded_by,
         "aggregates": run.aggregates,
