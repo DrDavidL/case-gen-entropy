@@ -268,6 +268,30 @@ class SimReadyStructuredUpdateRequest(BaseModel):
     oracle_specialty: str | None = None
 
 
+class SimReadyRenderPreviewRequest(BaseModel):
+    """Render a structured record to markdown without saving anything."""
+
+    content_structured: SimReadyCaseDetailsStructured
+
+
+class SimReadyRenderPreviewResponse(BaseModel):
+    """The markdown a save would write, produced by the same renderer the save uses.
+
+    The editor needs a preview, and the only correct preview is one the server produces:
+    a client-side reimplementation is a second renderer that drifts. That is not
+    hypothetical here — `POST /oracle/render-items` exists precisely because the SPA's
+    client-side mirror of the stem renderer had already drifted, and authors were
+    reviewing a sentence learners would never see (ADR-020).
+    """
+
+    content_rendered: str
+    # Cheap structural assertions the editor can surface without parsing the markdown.
+    # The delimiter is load-bearing: the simulator splits on it, so a record that fails
+    # to produce one would save a document the simulator cannot read.
+    door_chart_delimiter_present: bool
+    character_count: int
+
+
 class SimReadyCaseCopyRequest(BaseModel):
     """Fork an edited case into a new simulator row and a new case family.
 

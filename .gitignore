@@ -15,8 +15,12 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Anchored to the repo root. Unanchored, `lib/` matches at ANY depth, which silently
+# swallowed all of `web/src/lib/` — including `api.ts`, the SPA's entire backend client.
+# Phase 4b therefore committed an SPA that could not build from a fresh clone, and it
+# went unnoticed because the files exist in the working tree. Keep the leading slash.
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -97,3 +101,8 @@ deployment-config-*.yaml
 # React SPA (Phase 4b)
 web/node_modules/
 web/dist/
+
+# Generated from the committed `web/openapi.json` by `npm run gen:types`, which the
+# `build` script runs first. Deliberately not committed: the schema is the contract, and
+# a checked-in copy of its output is one more thing that can silently disagree with it.
+web/src/lib/types.gen.ts

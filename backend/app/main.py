@@ -45,6 +45,8 @@ from backend.models.editing_schemas import (
     SimReadyCaseCopyRequest,
     SimReadyCasePreviewResponse,
     SimReadyCaseUpdateRequest,
+    SimReadyRenderPreviewRequest,
+    SimReadyRenderPreviewResponse,
     SimReadyStructuredUpdateRequest,
 )
 from backend.models.schemas import (
@@ -71,6 +73,7 @@ from backend.utils.build_info import get_build_info
 from backend.utils.llm_service import LLMService
 from backend.utils.panel_runner import describe_settings
 from backend.utils.sim_ready_transform import (
+    DOOR_CHART_DELIMITER,
     build_default_custom_evaluation,
     build_default_custom_input,
     build_default_learner_tasks,
@@ -1260,6 +1263,44 @@ async def get_sim_ready_case_structured(case_id: int):
         "parity_reason": parity["reason"],
         "parity_message": parity["message"],
     }
+
+
+@app.post(
+    "/sim-ready/render-preview",
+    response_model=SimReadyRenderPreviewResponse,
+)
+async def render_structured_preview(request: SimReadyRenderPreviewRequest):
+    """Render a structured record to markdown. Writes nothing, costs no model call.
+
+    The editor's preview pane. Server-side so exactly one renderer stays authoritative —
+    the same `render_sim_ready_content()` a save calls, so what an author previews is
+    byte-for-byte what `PUT .../structured` would store. A client-side reimplementation
+    would be a second renderer that drifts, which is not a hypothetical: the SPA's mirror
+    of the *stem* renderer had already drifted before `POST /oracle/render-items`
+    replaced it (ADR-020).
+
+    Unauthenticated, matching `/oracle/render-items`: it touches no database, reads no
+    case, and returns only a transformation of what the caller already sent.
+
+    Not case-scoped on purpose. The preview must reflect the author's unsaved buffer, not
+    the stored record, so there is nothing to look up and no case id to take.
+    """
+    structured = request.content_structured.model_dump()
+    try:
+        rendered = render_sim_ready_content(structured)
+    except (KeyError, TypeError) as e:
+        # Same 422 the save path gives, from the same renderer, so a record that cannot
+        # render fails in the preview rather than at save time.
+        raise HTTPException(
+            status_code=422,
+            detail=f"The structured record could not be rendered: {e}",
+        ) from e
+
+    return SimReadyRenderPreviewResponse(
+        content_rendered=rendered,
+        door_chart_delimiter_present=DOOR_CHART_DELIMITER in rendered,
+        character_count=len(rendered),
+    )
 
 
 @app.put("/sim-ready/case/{case_id}/structured")

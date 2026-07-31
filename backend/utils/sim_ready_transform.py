@@ -2,6 +2,13 @@
 Transforms structured LLM output into sim-ready format for the case_details table.
 """
 
+# The boundary between the Clinical Dashboard and the Door Chart. Load-bearing in three
+# places that do not import each other: this renderer writes it, the Streamlit editor
+# splits the document on it, and the simulator parses by it. Changing the text silently
+# breaks the other two, so it lives here as the single source and is interpolated into
+# the template below rather than repeated as a literal.
+DOOR_CHART_DELIMITER = "## PATIENT DOOR CHART and Learner Instructions"
+
 
 def render_sim_ready_content(case_data: dict) -> str:
     """
@@ -84,7 +91,7 @@ def render_sim_ready_content(case_data: dict) -> str:
 
 ---
 
-## PATIENT DOOR CHART and Learner Instructions
+{DOOR_CHART_DELIMITER}
 
 - **Patient Name**: `{dc["patient_name"]}`
 - **Age**: `{dc["age"]}`

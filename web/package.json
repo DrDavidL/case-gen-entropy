@@ -6,7 +6,7 @@
   "packageManager": "npm@11.6.2",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run gen:types && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "gen:types": "openapi-typescript openapi.json -o src/lib/types.gen.ts"

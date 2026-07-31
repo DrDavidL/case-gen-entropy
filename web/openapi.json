@@ -1563,6 +1563,43 @@
         "title": "SimReadyCaseUpdateRequest",
         "type": "object"
       },
+      "SimReadyRenderPreviewRequest": {
+        "description": "Render a structured record to markdown without saving anything.",
+        "properties": {
+          "content_structured": {
+            "$ref": "#/components/schemas/SimReadyCaseDetailsStructured"
+          }
+        },
+        "required": [
+          "content_structured"
+        ],
+        "title": "SimReadyRenderPreviewRequest",
+        "type": "object"
+      },
+      "SimReadyRenderPreviewResponse": {
+        "description": "The markdown a save would write, produced by the same renderer the save uses.\n\nThe editor needs a preview, and the only correct preview is one the server produces:\na client-side reimplementation is a second renderer that drifts. That is not\nhypothetical here \u2014 `POST /oracle/render-items` exists precisely because the SPA's\nclient-side mirror of the stem renderer had already drifted, and authors were\nreviewing a sentence learners would never see (ADR-020).",
+        "properties": {
+          "character_count": {
+            "title": "Character Count",
+            "type": "integer"
+          },
+          "content_rendered": {
+            "title": "Content Rendered",
+            "type": "string"
+          },
+          "door_chart_delimiter_present": {
+            "title": "Door Chart Delimiter Present",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "content_rendered",
+          "door_chart_delimiter_present",
+          "character_count"
+        ],
+        "title": "SimReadyRenderPreviewResponse",
+        "type": "object"
+      },
       "SimReadyStructuredUpdateRequest": {
         "description": "Save structured field edits. The renderer produces the markdown (ADR-002).\n\nThe inverse of `SimReadyCaseUpdateRequest`, which takes markdown in and spends a model\ncall re-reading it back into the record. Here the record *is* the input, so there is\nnothing to re-read: rendering is deterministic, the projection cannot drift from its\nsource, and the save costs no LLM call at all.\n\n`content_structured` is typed rather than a free dict on purpose. It is the contract\nthe generated frontend types are built from (ADR-020), so a field renamed in\n`SimReadyCaseDetailsStructured` has to surface as a validation error here and a type\nerror there, instead of as a key that silently stops arriving.",
         "properties": {
@@ -3316,6 +3353,45 @@
           }
         },
         "summary": "List Sim Ready Cases"
+      }
+    },
+    "/sim-ready/render-preview": {
+      "post": {
+        "description": "Render a structured record to markdown. Writes nothing, costs no model call.\n\nThe editor's preview pane. Server-side so exactly one renderer stays authoritative \u2014\nthe same `render_sim_ready_content()` a save calls, so what an author previews is\nbyte-for-byte what `PUT .../structured` would store. A client-side reimplementation\nwould be a second renderer that drifts, which is not a hypothetical: the SPA's mirror\nof the *stem* renderer had already drifted before `POST /oracle/render-items`\nreplaced it (ADR-020).\n\nUnauthenticated, matching `/oracle/render-items`: it touches no database, reads no\ncase, and returns only a transformation of what the caller already sent.\n\nNot case-scoped on purpose. The preview must reflect the author's unsaved buffer, not\nthe stored record, so there is nothing to look up and no case id to take.",
+        "operationId": "render_structured_preview_sim_ready_render_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimReadyRenderPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimReadyRenderPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Render Structured Preview"
       }
     }
   }
