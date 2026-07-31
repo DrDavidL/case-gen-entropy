@@ -494,13 +494,18 @@ Standard registry in `lab-simulation` and may serve other projects.
       `npm audit fix` touches 34 packages with no major bumps. Deferred because broad dependency
       upgrades are not a default action — needs a deliberate call, ideally the targeted
       `react-router-dom` bump first, then `npm run build` and an SPA smoke test.
-- [ ] **Dependabot has never once succeeded in this repo.** Checked 2026-07-31: every historical
-      `Dependabot Updates` run is `cancelled`, and the two from 2026-07-30T23:56 have sat `queued`
-      with zero steps started for 15+ hours, while an ordinary workflow run picked up a runner in
-      one second. That is why there are no PRs and why the alert count went from 25 high on
-      2026-07-29 to 42 high on 2026-07-31. **Fix this before doing more manual bumps** — otherwise
-      the same backlog rebuilds. Start at Settings → Code security → Dependabot, and check whether
-      Dependabot on Actions runners is enabled
+- [ ] **Unpause Dependabot. It is paused because its PRs went unmerged**, which is GitHub's
+      inactivity behaviour, and from the API it looks like a stuck runner: every historical
+      `Dependabot Updates` run is `cancelled`, and the two from 2026-07-30T23:56 sat `queued` with
+      zero steps for 15+ hours while an ordinary workflow got a runner in one second. That is why
+      there are no PRs and why the alert count went from 25 high on 2026-07-29 to 42 high on
+      2026-07-31. Unpause by interacting with a Dependabot PR, or "Check for updates" on the
+      Dependabot page.
+
+      **This is upstream of the whole Aug 4 problem.** With Dependabot running, `react-router-dom`
+      7.18.2 would have arrived as a PR on 2026-07-28, aged through review, and been mergeable on
+      Aug 4 with no decision to make. The 7-day rule was never the friction; the paused bot was.
+      Fix this before doing more manual bumps, or the backlog just rebuilds
 
 #### The Aug 4 bump — investigated 2026-07-31, recipe below
 
