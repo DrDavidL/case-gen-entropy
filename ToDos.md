@@ -7,17 +7,44 @@ Simulator-side work is tracked separately in `../direct-sim/FINAL_ORDERS_TODO.md
 
 ---
 
-## Start here — state as of 2026-07-30
+## Start here — state as of 2026-07-31
 
-**Phases 1 through 3 are built, deployed, and verified live.** Both working trees are clean.
+**Phases 1 through 3 are live. Phase 4a and 4b are live. `ADR-020` (React SPA) is the active
+workstream, and 4c is next.**
 
 | | | Verified how |
 |---|---|---|
-| case-gen live build | `663e0c3` | `GET /` on the backend, built 23:56Z |
-| direct-sim live build | `87b15d3` | `GET /api/version` on **`direct-sim-beta`** |
+| case-gen live build | `642b044` | `GET /` on the backend |
+| direct-sim live build | `2c5fc37` | `GET /api/version` on **`direct-sim-beta`** |
 | Shared DB revision | `0003_final_orders_and_panels` | queried `alembic_version` directly |
 | `authoring` tables | all 7, including `panel_runs` / `panel_ratings` | queried `information_schema` |
 | Deploy | push to `main` in either repo | both pipelines green at the SHAs above |
+
+### Open right now
+
+- **`direct-sim` PR #13** — urllib3, eslint 10, postcss, react-router 8, node 22, CI permission
+  fix. All checks green, `MERGEABLE / CLEAN`, **not merged**. Takes direct-sim's
+  `npm audit --omit=dev` to zero. Merge this before starting anything else in that repo
+- **No students are using either app.** That is why the eslint major and the router migration
+  were done now. It is a window for disruptive work, and it expires
+- A scheduled routine (`trig_01A2K4CeFtRpMddWatMEP4Ct`) fires 2026-08-04 for the react-router
+  bump. **Now redundant** — PR #13 does it. It no-ops safely, but disable it at
+  <https://claude.ai/code/routines>
+
+### Three failures found on 2026-07-31, all the same shape
+
+Each of these is a check that **ran, reported success, and verified nothing.** Same family as
+`ADR-012`'s mutable image tag. When touching any gate, prove it fails on a deliberate defect
+before trusting that it passes:
+
+1. **`npx tsc --noEmit` in the pre-push hook checked zero files.** Both repos use solution-style
+   `tsconfig.json` (`"files": []` plus `references`), where `--noEmit` typechecks nothing and
+   exits 0. A planted type error passed it. Fixed to `tsc -b --force`
+2. **`direct-sim`'s secret scan had never run on a pull request.** `permissions: contents: read`
+   is one scope short of the `pull-requests: read` that gitleaks-action needs on a
+   `pull_request` event; it 403'd before scanning anything. Push events passed, no PRs had been
+   opened, so nobody saw it
+3. **Generated TypeScript types described nothing** for endpoints without a `response_model`
 
 **The FQDN that answers `/api/version` is `direct-sim-beta`, not `direct-sim`.** The deploy
 workflow updates both apps; `direct-sim` is the legacy Streamlit one and returns its index HTML
@@ -62,9 +89,8 @@ Order and it is gated on the stem decision, not on code.
    distribution generated under the old wording.
 3. **Adopt the OSCE cases that are actually in use** and skim what the reconstruction produced.
 4. Then the verification pass under "Deploy integrity" below.
-5. **Dependabot**, surfaced by the 2026-07-30 push and not yet looked at: **65 advisories on
-   direct-sim (42 high)** and **9 on case-gen (2 high)**. Separate from the secret-scanning work
-   and worth clearing before students touch the simulator.
+5. **Merge `direct-sim` PR #13**, then clear the remaining Dependabot backlog (below). Both are
+   cheap right now because nobody is using either app.
 
 ### Environment — changed 2026-07-30, will bite a fresh session
 
@@ -297,12 +323,27 @@ landed. All of it is usable from the current Streamlit UI, so 4a stands on its o
       authenticates with Basic and stays live until 4e, so the two must coexist through the
       transition. `ADR-020` says auth "moves" to JWT; the move completes at cutover, not here
 
-**Phase 4b — SPA shell.** Vite, React 19, Tailwind 4, react-router, mirroring `direct-sim`.
+**Phase 4b — SPA shell. Built and deployed 2026-07-31 (`60dc587`).** Lives in **`web/`**, not
+`frontend/` — `frontend/` is still Streamlit and stays until 4e. Vite, React 19, Tailwind 4,
+**react-router 8**, eslint 10.
 
-- [ ] Scaffold; add `openapi-typescript` as a dev dependency and a script that regenerates the
-      committed types from the OpenAPI schema `ADR-020`
-- [ ] Case list, read-only case view, build footer. Least risky screens first, to prove auth, the
-      API client, and deploy before touching the editor
+- [x] Scaffold, with `openapi-typescript` generating `web/src/lib/types.gen.ts` from a committed
+      `web/openapi.json` `ADR-020`
+- [x] Case list, read-only case view, build footer
+- [x] `scripts/dump_openapi.py` regenerates the schema. **Run it after changing any request or
+      response model**, then `cd web && npm run gen:types`
+- [ ] CI should run the dump and fail if the result is dirty, so a model change cannot land
+      without its schema. Not wired up yet
+
+Two things a fresh session needs to know here:
+
+- **Generated types are only as good as the `response_model` declarations.** Every endpoint the
+  SPA needed originally returned a bare dict, so the schema described them as empty objects and
+  the generator emitted `{}` — protection that looked real and checked nothing. Four response
+  models were added to fix it. **A new endpoint the SPA consumes needs a declared
+  `response_model` or it silently repeats this.**
+- **No auth in the SPA yet, deliberately.** Every endpoint it touches is unauthenticated. JWT
+  arrives in 4c with the editor, which is the first thing that needs it.
 
 **Phase 4c — the structured editor.** The actual job. ~45 scalar fields across ten nested groups
 plus three dynamic lists (`history_questions`, `physical_exam_findings`, `diagnostic_workup`).
@@ -320,11 +361,21 @@ plus three dynamic lists (`history_questions`, `physical_exam_findings`, `diagno
 **Phase 4d — remaining screens.** Generate form, Final Orders editor, Oracle view (histograms,
 preflight, leak audit), Export. All against endpoints that already exist.
 
-**Phase 4e — cutover.** FastAPI serves `frontend/dist` as `direct-sim/Dockerfile.react` does.
+**Phase 4e — cutover.** FastAPI serves `web/dist` the way `direct-sim/Dockerfile.react` serves
+`frontend/dist`. Note the path is `web/`, not `frontend/`.
 
+- [ ] **Build the SPA on `node:22-slim` or newer, not `node:20-slim`.** `react-router@8.3.0`
+      declares `engines.node >=22.22.0`. direct-sim hit exactly this: the router migration was
+      written against a Dockerfile still on node 20, which would have shipped an image built on
+      an unsupported runtime. Caught only because a second pass looked at the Dockerfile
 - [ ] Retire the `casegen-frontend` container app. Its removal makes the frontend/backend
       build-stamp drift warning structurally impossible rather than monitored — see
       "Deploy integrity" below and `ADR-012`
+- [ ] Delete `frontend/` (Streamlit) once `web/` reaches parity. **This also clears 11 open
+      Dependabot alerts by itself** — GitPython is a Streamlit transitive and nothing else pulls
+      it
+- [ ] Remove HTTP Basic from the backend at this point, not before. It is what the Streamlit UI
+      authenticates with, so the two auth paths coexist until Streamlit is gone `ADR-020`
 
 ## Phase 5 — LR transparency and re-assessment
 
@@ -489,11 +540,30 @@ Standard registry in `lab-simulation` and may serve other projects.
 
 ### direct-sim dependency advisories
 
-- [ ] **25 high / 5 medium open Dependabot alerts**, no PRs open. The `react-router` cluster
-      includes an unauthenticated RCE advisory reachable from a page students load.
-      `npm audit fix` touches 34 packages with no major bumps. Deferred because broad dependency
-      upgrades are not a default action — needs a deliberate call, ideally the targeted
-      `react-router-dom` bump first, then `npm run build` and an SPA smoke test.
+- [ ] **Clear the remaining pip backlog.** Enumerated 2026-07-31 via
+      `gh api repos/DrDavidL/direct-sim/dependabot/alerts --paginate`. Of the 65 open alerts, the
+      npm side is handled by PR #13 (urllib3, all `react-router`); what is left is **almost
+      entirely Python, runtime scope, and each package is one or two patches behind**:
+
+      | Package | Locked | Patched | Alerts |
+      |---|---|---|---|
+      | Pillow | 12.2.0 | 12.3.0 | 13 |
+      | GitPython | 3.1.47 | 3.1.55 | 11 |
+      | PyJWT | 2.12.1 | 2.13.0 | 5 |
+      | tornado | 6.5.5 | 6.5.7 | 4 |
+      | starlette | 1.0.0 | 1.3.1 | 4 |
+      | soupsieve | 2.8.3 | 2.8.4 | 2 |
+      | idna | 3.11 | 3.15 | 1 |
+      | Mako | 1.3.11 | 1.3.12 | 1 |
+      | weasyprint | 68.1 | **none exists** | 1 |
+
+      One `uv lock --upgrade-package <name>` per row, **not** `--exclude-newer` and **not** a bare
+      `uv lock --upgrade`: the guard re-resolves the whole tree and dragged weasyprint 68→69 and
+      uvicorn 0.43→0.51 into a three-line urllib3 bump. Then `uv sync --frozen`, `ruff`, and
+      import the backend modules.
+
+      **GitPython's 11 alerts need no work at all** — it is a Streamlit transitive and Phase 4e
+      deletes it. **weasyprint has no patched version**, so it can only be recorded, not fixed.
 - [ ] **Unpause Dependabot. It is paused because its PRs went unmerged**, which is GitHub's
       inactivity behaviour. The record, checked 2026-07-31: it produced 11 PRs between
       2025-04-24 and 2026-02-05, of which **5 merged and 6 were closed unmerged**, and then it

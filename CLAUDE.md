@@ -71,12 +71,32 @@ backend/
     auth.py            — HTTP Basic Auth (env-based credentials)
     simulator_export.py — Pandas-based export to CSV/Excel/JSON/text (beta format only)
     sim_ready_transform.py — render_sim_ready_content(), default builders, coerce_json_field()
-frontend/
-  app.py               — Streamlit UI (4 tabs: Generate, Edit, View, Export) with output format selector.
+frontend/                — LEGACY Streamlit UI. Retired at Phase 4e; still the only editor today
+  app.py               — 4 tabs (Generate, Edit, View, Export) with output format selector.
                          Sim-ready Edit: split content editor (Clinical Dashboard / Door Chart), native
                          Streamlit inputs for simulator fields. Export: both sim DB files + in-memory LR data.
   auth.py              — Frontend auth session management
+web/                     — React SPA replacing it (ADR-020). Read-only so far: case list + case view
+  openapi.json         — committed schema; the contract the TS types are generated from
+  src/lib/types.gen.ts — GENERATED, do not hand-edit
+  src/lib/api.ts       — typed client
+scripts/
+  dump_openapi.py      — rewrites web/openapi.json from the live route table
 ```
+
+**Two directories, on purpose.** `frontend/` is Streamlit and `web/` is React; they coexist until
+Phase 4e. `web/` is what gets served after cutover.
+
+**After changing any request or response model**, regenerate both or the frontend types go stale:
+
+```bash
+uv run python scripts/dump_openapi.py && (cd web && npm run gen:types)
+```
+
+**An endpoint the SPA consumes needs an explicit `response_model`.** Without one FastAPI documents
+it as an empty object, `openapi-typescript` emits `{}`, and every field access on the client is a
+type error — generation that looks protective while describing nothing. This was true of all four
+SPA endpoints until 2026-07-31.
 
 ## Key Technical Details
 
@@ -199,6 +219,10 @@ than skipping the scan, so `brew install gitleaks` is a hard prerequisite in eit
 # Local dev (requires .env, Redis, PostgreSQL)
 python start_backend.py        # FastAPI on :8000
 python start_frontend.py       # Streamlit on :8501
+
+# React SPA (web/) — port 5174, not 5173, so it can run alongside direct-sim's dev server
+cd web && npm ci && npm run dev
+cd web && npm run build && npm run lint   # tsc -b runs inside build
 
 # Docker
 docker compose up --build      # All services (Redis, backend, frontend)
