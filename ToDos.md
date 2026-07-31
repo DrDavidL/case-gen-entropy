@@ -494,18 +494,63 @@ Standard registry in `lab-simulation` and may serve other projects.
       `npm audit fix` touches 34 packages with no major bumps. Deferred because broad dependency
       upgrades are not a default action — needs a deliberate call, ideally the targeted
       `react-router-dom` bump first, then `npm run build` and an SPA smoke test.
-- [ ] **Do the `react-router-dom` bump on or after 2026-08-04.** Checked 2026-07-31: the fix is
-      `7.18.2`, published 2026-07-28, so it is inside the 7-day rule until Aug 4. `7.18.1`
-      (2026-06-29) is old enough but still inside the advisory's vulnerable range, so it fixes
-      nothing. `vite 8.2.0` (2026-07-30) clears on Aug 6; `postcss 8.5.25` on Aug 5, and note
-      postcss is pinned by an explicit `overrides` block in `frontend/package.json` so the bump
-      has to edit that. Of the four, **only `react-router` ships to the browser** — vite and
-      postcss are build-time and `js-yaml` is dev-only through eslint, so the browser-facing bump
-      is the one that matters and can go alone.
-- [ ] **The pre-push `npm audit --audit-level=high` gate is currently being pushed past by hand**
-      (2026-07-31, the transcript fix). That is survivable once for an unrelated commit, but a
-      gate routinely bypassed is not a gate. The bump above is what restores it — until then,
-      every push to `direct-sim` needs the same manual override, which is the actual cost.
+- [ ] **Dependabot has never once succeeded in this repo.** Checked 2026-07-31: every historical
+      `Dependabot Updates` run is `cancelled`, and the two from 2026-07-30T23:56 have sat `queued`
+      with zero steps started for 15+ hours, while an ordinary workflow run picked up a runner in
+      one second. That is why there are no PRs and why the alert count went from 25 high on
+      2026-07-29 to 42 high on 2026-07-31. **Fix this before doing more manual bumps** — otherwise
+      the same backlog rebuilds. Start at Settings → Code security → Dependabot, and check whether
+      Dependabot on Actions runners is enabled
+
+#### The Aug 4 bump — investigated 2026-07-31, recipe below
+
+The one-line version: **`npm audit --audit-level=high` cannot pass, and the gate is asking the
+wrong question.** Production dependencies carry exactly two high advisories, both `react-router`.
+Everything else is dev-only tooling that never reaches a student.
+
+Verified by experiment on a scratch branch (reverted; the tree is clean):
+
+- **`react-router-dom` 7.18.2 is the whole browser-facing fix.** `npm audit --omit=dev` reports
+  `react-router` and `react-router-dom` and nothing else. Clears the 7-day rule on **2026-08-04**
+- **`brace-expansion` cannot be overridden.** Forcing `5.0.8` makes eslint die with
+  `TypeError: expand is not a function` — v5 changed its export shape and minimatch@3 calls it the
+  old way. `tsc` and `build` still pass; only lint breaks, so this fails *quietly* if nobody runs
+  lint. The real fix is **eslint 10**: `@eslint/config-array` only moves to `minimatch ^10.2.4`
+  there. eslint 9.39.5 does bring `js-yaml` 4.3.0, which does fix that one advisory
+- **Do not use `^8.0.16` for vite.** It resolves to 8.2.0, one day old, and swaps the bundler
+  (rolldown rc.13 → 1.2.1 plus 13 new lightningcss binaries). `~8.0.16` keeps it in the 8.0 line.
+  vite's own two advisories are dev-server-only and Windows-only, so they do not affect this
+  deployment at all
+- **vite 8.0.16 needs `@napi-rs/wasm-runtime` newer than the 7-day cutoff.** Pinning it back to
+  1.1.6 produces a lockfile `npm install` accepts and **`npm ci` rejects**, which would break
+  `Dockerfile.react`. 1.2.0 clears the rule on Aug 4, same day as react-router
+- **`npm install --before=<date>` is the wrong tool here.** It re-resolves the entire tree to
+  pre-cutoff versions and desyncs unrelated transitives. Use targeted versions instead
+- **Overrides desync the lockfile on the first `npm install`.** Run `npm install` **twice**, then
+  `npm ci`, or the clean-install CI step fails on `@emnapi/wasi-threads`
+
+Recipe for Aug 4 or later, in `frontend/`:
+
+```bash
+npm install react-router-dom@7.18.2        # the only browser-facing fix
+npm install                                # second pass: reconciles the lockfile
+rm -rf node_modules && npm ci              # must succeed — Dockerfile.react uses it
+npx tsc -b && npm run lint && npm run build
+npm audit --omit=dev --audit-level=high    # must exit 0
+```
+
+Then a login-and-load smoke test against the built SPA before pushing.
+
+- [ ] **Change the pre-push gate to `npm audit --omit=dev --audit-level=high`.** As written it
+      counts eslint's own dev-only DoS advisories, so it can only pass after an eslint 10
+      migration and will otherwise be bypassed by hand forever — which is what happened on
+      2026-07-31 pushing the transcript fix. A gate routinely overridden is not a gate. Scoping it
+      to what ships makes it pass the moment `react-router` is fixed, and makes a future failure
+      mean something. The hook is `~/.claude/hooks/pre-push-checks.sh`, outside both repos
+- [ ] Optional, separate: **eslint 10 migration**, the only way to clear the `brace-expansion` /
+      `minimatch` chain. Not urgent — it is lint-time DoS in a local dev tool
+- [ ] `postcss` override `8.5.10` → `8.5.18` (published 2026-07-12, already clears the rule).
+      Build-time only, but free and verified to build
 - [ ] A formatting-only commit (`542c08e`) is committed but unpushed in `direct-sim`, blocked
       behind the same audit gate.
 
