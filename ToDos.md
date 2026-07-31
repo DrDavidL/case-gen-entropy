@@ -133,9 +133,15 @@ is not.
 
 ### The immediate next actions, in order
 
-1. **Get the rating stem confirmed by the group.** Now the only thing between here and sending
-   `docs/email-draft-2026-07-30.md`. Still the one decision that is expensive to change later: it
-   invalidates every distribution generated under the old wording.
+1. **Get the rating stem confirmed by the group — preliminary yes, not yet final.** As of
+   2026-07-31 the research group's preliminary word is to **keep our version** (`v2_revised`, which
+   is already the `ORACLE_STEM_VERSION` default), with a firm answer to follow.
+
+   **Treat that as not-yet-decided for anything you intend to keep.** The stem is the measurement
+   instrument: every distribution generated under it is invalidated if the wording changes, so a
+   preliminary yes is enough to keep building and testing, and not enough to start accumulating
+   research data. Runs already stamp `stem_version`, so exploratory runs made now are
+   identifiable and discardable if the answer moves.
 2. **Run a panel on a genuinely debatable Final Order.** Both existing runs are unanimous, so the
    `ADR-018` question is still open. Do it on a disposable case: adding an order to an existing one
    destroys prior runs' referent — see "Editing Final Orders orphans completed panel runs" below.
@@ -260,25 +266,42 @@ first real run" below.
 - [x] `stem_action` column — deriving the gerund from the label gets activations wrong
       ("ordering a stroke team activation")
 
-### Editing Final Orders orphans completed panel runs — found 2026-07-31
+### Editing Final Orders orphaned completed panel runs — fixed 2026-07-31
 
-- [ ] **`replace_final_orders()` deletes every existing row and re-inserts with new ids**
-      (`backend/utils/final_orders_store.py:69-77`), and `panel_runs.item_ref_id` is deliberately
-      not a foreign key because it points into a different table per `item_type`. So a routine
-      author action — adding a second Final Order to a case that already has one — silently
-      destroys the row that every completed run for the first order points at. Nothing errors.
+- [x] **Fixed** in `case-gen-entropy efe063f` + `direct-sim 67ca661` (migration
+      `0004_panel_run_item_snapshot`, applied to production and verified).
 
-      **The rated item is then unrecoverable.** `order_text` is never copied onto `panel_runs`, so
-      after a replace there is no way to say what a stored distribution was measuring; only
-      `claim_hash` survives, and it is a hash. This directly contradicts the append-only intent
-      written on `PanelRun` itself: "For a research dataset, what was generated and when is part of
-      the data, so nothing is overwritten." Re-runs honour that; edits do not.
+      The defect: `replace_final_orders()` deleted every row and re-inserted with fresh ids, and
+      `panel_runs.item_ref_id` is deliberately not a foreign key (it points into a different table
+      per `item_type`). So adding a second Final Order to a case whose first one had been rated
+      silently detached the completed run — no error, nothing logged, the distribution just stopped
+      appearing. And nothing recorded what had been rated, so it was unrecoverable: only
+      `claim_hash` survived, and a hash cannot say what the panel was asked.
 
-      Cheapest correct fix is to **denormalise the rated claim onto the run** (`order_text`,
-      `stem_action`) at creation, so a run stays self-describing regardless of what happens to the
-      order row. Soft-delete on `case_final_orders`, or making replace an upsert that preserves ids
-      for unchanged rows, both also work and are larger. Until one lands, **add Final Orders to a
-      disposable case rather than to one that has already been rated.**
+      Two changes, because there were two distinct problems:
+
+      - **Rows reconcile by identity now, rather than delete-and-reinsert.** Identity is the order
+        text, whitespace- and case-insensitive. The text is the claim; `stem_action` and the
+        suppression fields are how it is phrased and matched. So add, reorder, retype, and
+        synonym-edit all preserve ids and keep ratings attached. **Changing the text still yields a
+        new id, deliberately** — it is a different claim and must not inherit the old distribution.
+      - **Runs carry `item_label` + `item_snapshot`**, including the rendered stem. `order_text`
+        alone would still not say what the panel was asked, because the stem is the instrument.
+        Gated behind `panel_run_snapshot_ready()` so a deploy that lands ahead of the migration
+        degrades to null snapshots instead of failing every run on an unknown column.
+
+      Deleting a rated order is still allowed — the author's list is authoritative — but it is now
+      **reported**: `PUT .../final-orders` returns `detached_panel_runs`, and the store logs a
+      warning naming the orders and run counts. **Phase 4d's Final Orders editor must surface that
+      field**; it is the whole point of returning it.
+
+      Verified against the production schema with disposable rows: 24 assertions, counts back to
+      baseline afterwards. The two pre-existing runs were backfilled by the migration and now read
+      `item_label = "CT scan of the abdomen"`.
+
+- [ ] `PUT /sim-ready/case/{id}/final-orders` has **no `response_model`**, so `detached_panel_runs`
+      is invisible to the generated TypeScript. Declare one before Phase 4d builds against it —
+      this is the same gap that made all four SPA endpoints emit `{}`
 
 ## Phase 3 — Oracle panel
 
@@ -656,16 +679,16 @@ Standard registry in `lab-simulation` and may serve other projects.
       previous two produced was "read the PR history, not the Actions view." That was still
       indirect evidence. Read the flag.
 
-- [ ] **Separately: `direct-sim`'s dependency graph has not refreshed since April 2026.** Its
-      `Graph Update: uv in /.` jobs sit `queued` with **zero steps** — three fired on 2026-07-31
-      alone, and the last runs to reach any terminal state were two `cancelled` ones on 2026-04-28.
-      Ordinary workflows (Build and Deploy, Secret scan) ran fine on `389af1c` at the same moment,
-      so this is not a general runner outage; it is specific to Dependabot's `dynamic` workflows.
+- [x] **The alert list did refresh, just slowly.** `direct-sim` went **46 → 4** open alerts after
+      `389af1c`, exactly the 42 predicted. The four left are `weasyprint` (medium, **no patched
+      version exists**) and three npm dev-only ones (`vite` high + moderate, `@babel/core` low),
+      none of which reach a student.
 
-      **Consequence, confirmed:** the open-alert count did not move after `389af1c` shipped. The
-      lockfile on `main` and the deployed image are genuinely fixed, but GitHub will keep reporting
-      46 open alerts until the graph refreshes. Treat the alert list as stale evidence and trust
-      `pip-audit` against the actual lock, which reports only weasyprint.
+      Recorded because it briefly looked otherwise: `Graph Update: uv in /.` jobs sit `queued` with
+      zero steps for a long while (three did on 2026-07-31, and the last to reach a terminal state
+      before that were two `cancelled` ones on 2026-04-28), which reads exactly like a stuck runner.
+      **Give it time before concluding the graph is broken** — checking the count minutes after a
+      push is too early, and that misreading was the fourth wrong Dependabot conclusion in a day.
 
 - [ ] Delete the 9 stale `origin/dependabot/pip/*` branches left behind by closed PRs
       (`h11-0.16.0`, `pip-26.0`, `protobuf-5.29.5`, `protobuf-5.29.6`, `requests-2.32.4`,
