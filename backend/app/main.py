@@ -28,6 +28,7 @@ from backend.models.database import (
 )
 from backend.models.editing_schemas import (
     AdoptCaseRequest,
+    AuthCheckResponse,
     CaseEditRequest,
     CasePreviewResponse,
     CaseSaveRequest,
@@ -63,7 +64,7 @@ from backend.models.structured_outputs import (
     ProbabilityEntry,
 )
 from backend.utils import final_orders_store, oracle_service, oracle_stems, panel_roster
-from backend.utils.auth import verify_credentials
+from backend.utils.auth import verify_credentials, verify_credentials_silent
 from backend.utils.authoring_store import (
     load_analysis,
     persist_case_version,
@@ -1263,6 +1264,22 @@ async def get_sim_ready_case_structured(case_id: int):
         "parity_reason": parity["reason"],
         "parity_message": parity["message"],
     }
+
+
+@app.get("/auth/check", response_model=AuthCheckResponse)
+async def check_auth(username: str = Depends(verify_credentials_silent)):
+    """Validate a credential without performing any action. The SPA's login (ADR-021).
+
+    The SPA holds HTTP Basic credentials and sends them on every authenticated call, so
+    it needs somewhere cheap to find out whether they are right *before* an author starts
+    editing. Discovering a bad password by having a save fail is the wrong moment.
+
+    Uses `verify_credentials_silent`, so a wrong password returns a plain 401 the login
+    form can render instead of a browser-native credential dialog the app cannot control.
+
+    Reads nothing and writes nothing; the credential itself is the entire input.
+    """
+    return AuthCheckResponse(authenticated=True, username=username)
 
 
 @app.post(

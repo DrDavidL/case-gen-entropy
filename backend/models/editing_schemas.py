@@ -268,6 +268,13 @@ class SimReadyStructuredUpdateRequest(BaseModel):
     oracle_specialty: str | None = None
 
 
+class AuthCheckResponse(BaseModel):
+    """Result of validating a credential, for the SPA's login form (ADR-021)."""
+
+    authenticated: bool
+    username: str
+
+
 class SimReadyRenderPreviewRequest(BaseModel):
     """Render a structured record to markdown without saving anything."""
 

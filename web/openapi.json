@@ -50,6 +50,25 @@
         "title": "AdoptCaseRequest",
         "type": "object"
       },
+      "AuthCheckResponse": {
+        "description": "Result of validating a credential, for the SPA's login form (ADR-021).",
+        "properties": {
+          "authenticated": {
+            "title": "Authenticated",
+            "type": "boolean"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authenticated",
+          "username"
+        ],
+        "title": "AuthCheckResponse",
+        "type": "object"
+      },
       "CaseAnalysisResponse": {
         "description": "`GET /sim-ready/case/{id}/analysis` \u2014 framework and LR data for the latest version.",
         "properties": {
@@ -2001,6 +2020,30 @@
           }
         },
         "summary": "Root"
+      }
+    },
+    "/auth/check": {
+      "get": {
+        "description": "Validate a credential without performing any action. The SPA's login (ADR-021).\n\nThe SPA holds HTTP Basic credentials and sends them on every authenticated call, so\nit needs somewhere cheap to find out whether they are right *before* an author starts\nediting. Discovering a bad password by having a save fail is the wrong moment.\n\nUses `verify_credentials_silent`, so a wrong password returns a plain 401 the login\nform can render instead of a browser-native credential dialog the app cannot control.\n\nReads nothing and writes nothing; the credential itself is the entire input.",
+        "operationId": "check_auth_auth_check_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthCheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Check Auth"
       }
     },
     "/case/{case_id}/debug-lr-data": {

@@ -10,8 +10,13 @@ import {
   type SimReadyCase,
   type StructuredRecord,
 } from '../lib/api';
+import { ParityBanner } from '../components/ParityNotice';
 
-/** Read-only for now. Editing is Phase 4c, and needs auth the backend does not yet issue. */
+/**
+ * Read-only. The structured editor is the rest of Phase 4c; this page already surfaces
+ * content-parity state, because an author needs to see a divergence continuously rather
+ * than discover it when the Oracle refuses to run.
+ */
 export default function CaseViewPage() {
   const { caseId } = useParams();
   const id = Number(caseId);
@@ -75,6 +80,8 @@ export default function CaseViewPage() {
   return (
     <div className="space-y-5">
       <Back />
+
+      <ParityBanner state={record} />
 
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h2 className="text-base font-medium">
