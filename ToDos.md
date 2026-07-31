@@ -15,27 +15,27 @@ workstream, and 4c is next.**
 | | | Verified how |
 |---|---|---|
 | case-gen live build | `642b044` | `GET /` on the backend |
-| direct-sim live build | `2c5fc37` | `GET /api/version` on **`direct-sim-beta`** |
+| direct-sim live build | `114320c` | `GET /api/version` on **`direct-sim-beta`** |
 | Shared DB revision | `0003_final_orders_and_panels` | queried `alembic_version` directly |
 | `authoring` tables | all 7, including `panel_runs` / `panel_ratings` | queried `information_schema` |
 | Deploy | push to `main` in either repo | both pipelines green at the SHAs above |
 
 ### Open right now
 
-- **`direct-sim` PR #13** — urllib3, eslint 10, postcss, react-router 8, node 22, CI permission
-  fix. All checks green, `MERGEABLE / CLEAN`, **not merged**. Takes direct-sim's
-  `npm audit --omit=dev` to zero. Merge this before starting anything else in that repo
+- **`direct-sim` PR #13 merged 2026-07-31** (urllib3, eslint 10, postcss, react-router 8, CI
+  permission fix). Its shipped-dependency audit is now **zero**. The merge broke the image build
+  and was repaired in `114320c`; see failure 4 below before touching that lockfile
 - **No students are using either app.** That is why the eslint major and the router migration
   were done now. It is a window for disruptive work, and it expires
 - A scheduled routine (`trig_01A2K4CeFtRpMddWatMEP4Ct`) fires 2026-08-04 for the react-router
   bump. **Now redundant** — PR #13 does it. It no-ops safely, but disable it at
   <https://claude.ai/code/routines>
 
-### Three failures found on 2026-07-31, all the same shape
+### Four failures found on 2026-07-31, all the same shape
 
-Each of these is a check that **ran, reported success, and verified nothing.** Same family as
-`ADR-012`'s mutable image tag. When touching any gate, prove it fails on a deliberate defect
-before trusting that it passes:
+Each is a check that **ran, reported success, and verified the wrong thing.** Same family as
+`ADR-012`'s mutable image tag, which let a four-month-old image serve behind green deploys. When
+touching any gate, prove it fails on a deliberate defect before trusting that it passes:
 
 1. **`npx tsc --noEmit` in the pre-push hook checked zero files.** Both repos use solution-style
    `tsconfig.json` (`"files": []` plus `references`), where `--noEmit` typechecks nothing and
@@ -45,6 +45,16 @@ before trusting that it passes:
    `pull_request` event; it 403'd before scanning anything. Push events passed, no PRs had been
    opened, so nobody saw it
 3. **Generated TypeScript types described nothing** for endpoints without a `response_model`
+4. **A clean local `npm ci` proved nothing, and broke the deploy.** `frontend/package.json`
+   declares `"packageManager": "npm@10.9.8"`, which is what `node:22-slim` ships; the lockfile
+   was generated under npm 11.6.2. The two resolve optional wasm transitives differently, npm 11
+   elided two `@emnapi` entries npm 10 requires, and the production build failed on
+   `npm ci`. Every local gate had passed because every one ran under the wrong npm.
+
+   **Use the npm the image uses**: `npx npm@10.9.8 install`, and confirm `npm ci` passes under
+   both. Also check `.github/workflows/deploy.yml` for which Dockerfile is actually built — the
+   node 20 → 22 fix went into `Dockerfile.react`, but the deploy builds `Dockerfile.combined`,
+   so it was inert.
 
 **The FQDN that answers `/api/version` is `direct-sim-beta`, not `direct-sim`.** The deploy
 workflow updates both apps; `direct-sim` is the legacy Streamlit one and returns its index HTML
