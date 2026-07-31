@@ -15,7 +15,7 @@ workstream, and 4c is next.**
 | | | Verified how |
 |---|---|---|
 | case-gen live build | `642b044` | `GET /` on the backend |
-| direct-sim live build | `114320c` | `GET /api/version` on **`direct-sim-beta`** |
+| direct-sim live build | `389af1c` | `GET /api/version` on **`direct-sim-beta`** |
 | Shared DB revision | `0003_final_orders_and_panels` | queried `alembic_version` directly |
 | `authoring` tables | all 7, including `panel_runs` / `panel_ratings` | queried `information_schema` |
 | Deploy | push to `main` in either repo | both pipelines green at the SHAs above |
@@ -25,13 +25,17 @@ workstream, and 4c is next.**
 - **`direct-sim` PR #13 merged 2026-07-31** (urllib3, eslint 10, postcss, react-router 8, CI
   permission fix). Its shipped-dependency audit is now **zero**. The merge broke the image build
   and was repaired in `114320c`; see failure 4 below before touching that lockfile
+- **The Python dependency backlog is cleared** (`389af1c`, deployed and SHA-verified). Details
+  under "direct-sim dependency advisories"
+- **The Oracle panel is verified through the production backend**, which retires the last
+  blocker on `docs/email-draft-2026-07-30.md`. Only the stem confirmation remains
 - **No students are using either app.** That is why the eslint major and the router migration
   were done now. It is a window for disruptive work, and it expires
 - A scheduled routine (`trig_01A2K4CeFtRpMddWatMEP4Ct`) fires 2026-08-04 for the react-router
   bump. **Now redundant** — PR #13 does it. It no-ops safely, but disable it at
   <https://claude.ai/code/routines>
 
-### Four failures found on 2026-07-31, all the same shape
+### Five failures found on 2026-07-31, all the same shape
 
 Each is a check that **ran, reported success, and verified the wrong thing.** Same family as
 `ADR-012`'s mutable image tag, which let a four-month-old image serve behind green deploys. When
@@ -55,6 +59,18 @@ touching any gate, prove it fails on a deliberate defect before trusting that it
    both. Also check `.github/workflows/deploy.yml` for which Dockerfile is actually built — the
    node 20 → 22 fix went into `Dockerfile.react`, but the deploy builds `Dockerfile.combined`,
    so it was inert.
+5. **`direct-sim`'s `.githooks/pre-commit` still fails *open* on `pip-audit`.** Seen live while
+   committing the dependency bumps on 2026-07-31: it printed
+   `pip-audit... skipped (pip-audit not installed)` and passed. This is the identical defect that
+   was fixed for `gitleaks` in the very same hook on 2026-07-30 — the step directly above it — so
+   the file now contains one fail-closed check and one fail-open one. A machine without the binary
+   commits a vulnerable lockfile with every check reporting green.
+
+   **The fix is not simply installing pip-audit.** Do that alone and the gate becomes permanently
+   red, because `weasyprint` has an advisory with **no patched release**, and a gate that must be
+   overridden to do ordinary work stops being a gate — the same reasoning already written into the
+   npm section of `~/.claude/hooks/pre-push-checks.sh`. Fail closed on a *missing binary*, and
+   carry an explicit, commented `--ignore-vuln` for advisories with no available fix.
 
 **The FQDN that answers `/api/version` is `direct-sim-beta`, not `direct-sim`.** The deploy
 workflow updates both apps; `direct-sim` is the legacy Streamlit one and returns its index HTML
@@ -83,24 +99,48 @@ passing vacuously on 0; new-version saves carry lineage and Final Orders forward
 edit correctly spends no model call; a declined re-read is honestly marked detached; both preflight
 and the runner block on a blank diagnosis.
 
-**Not verified:** the Oracle panel has still never run on a real case. That is 15 calls per Final
-Order and it is gated on the stem decision, not on code.
+**Now verified** — see "Oracle: verified in production" immediately below.
+
+### Oracle: verified in production, 2026-07-31
+
+**The panel runs end to end through the deployed Azure backend.** `POST
+/sim-ready/case/106/oracle/run` against `casegen-backend` returned `queued`, and
+`GET .../oracle` reported `complete` with **15/15 ratings realized in 10.9 s**, all `status=ok`,
+via OpenRouter on `openai/gpt-5.6-sol` (12 seats) + `anthropic/claude-sonnet-5` (3 seats).
+
+**This retires the `OPENROUTER_API_KEY` doubt.** The key in Container Apps was previously only
+inferred non-empty from the fact that the backend starts; it is now proven *valid*, because 15
+real model calls returned content. That was the last unproven blocker on sending
+`docs/email-draft-2026-07-30.md`.
+
+Also confirmed by the same run: append-only lineage works (run 1 now carries `superseded_by=2`,
+nothing overwritten, 30 `panel_ratings` rows across the two runs), the leak audit and
+`check_content_parity()` both pass through the production path, and `BackgroundTasks` survived
+comfortably — though at 8 s per item the 3–5 minute replica-scale-in worry is still untested at
+5 Final Orders.
+
+**An earlier run already existed** (run 1, 04:17 UTC the same day, also 15/15). Nothing records
+whether it went through Azure or a local backend, because `panel_runs` carries no build stamp —
+which is exactly the open "record the generator build" item under Deploy integrity. Run 2 was
+executed deliberately against the production URL to remove that ambiguity.
+
+**What this does *not* establish.** Both runs rated a single degenerate item: "CT scan of the
+abdomen" on a STEMI case. All 15 seats said `-2`; entropy 0.0, SD 0.0, modal proportion 1.0, and
+the aggregate auto-flagged `low_discrimination`. That is the **same weakness already recorded for
+`ADR-018`** — the previous test item was unambiguous in the opposite direction — so whether the
+two-model split adds *rating* variance remains unknown. The machinery is proven; the measurement
+is not.
 
 ### The immediate next actions, in order
 
-1. **Run one Oracle panel end to end.** It has still never happened on a real case, and it is the
-   last thing standing between here and sending `docs/email-draft-2026-07-30.md` — which invites
-   Cory and Alex to run one. The OpenRouter key in Container Apps is proven non-empty (the backend
-   would not start otherwise) but **not proven valid**: a revoked key passes startup and fails
-   inside the model call, which is exactly what the local `.env` did on 2026-07-30. Sending first
-   means asking them to be the ones who find out.
-2. **Get the rating stem confirmed by the group** before that panel generates anything anyone
-   keeps. Still the one decision that is expensive to change later: it invalidates every
-   distribution generated under the old wording.
+1. **Get the rating stem confirmed by the group.** Now the only thing between here and sending
+   `docs/email-draft-2026-07-30.md`. Still the one decision that is expensive to change later: it
+   invalidates every distribution generated under the old wording.
+2. **Run a panel on a genuinely debatable Final Order.** Both existing runs are unanimous, so the
+   `ADR-018` question is still open. Do it on a disposable case: adding an order to an existing one
+   destroys prior runs' referent — see "Editing Final Orders orphans completed panel runs" below.
 3. **Adopt the OSCE cases that are actually in use** and skim what the reconstruction produced.
 4. Then the verification pass under "Deploy integrity" below.
-5. **Merge `direct-sim` PR #13**, then clear the remaining Dependabot backlog (below). Both are
-   cheap right now because nobody is using either app.
 
 ### Environment — changed 2026-07-30, will bite a fresh session
 
@@ -220,6 +260,26 @@ first real run" below.
 - [x] `stem_action` column — deriving the gerund from the label gets activations wrong
       ("ordering a stroke team activation")
 
+### Editing Final Orders orphans completed panel runs — found 2026-07-31
+
+- [ ] **`replace_final_orders()` deletes every existing row and re-inserts with new ids**
+      (`backend/utils/final_orders_store.py:69-77`), and `panel_runs.item_ref_id` is deliberately
+      not a foreign key because it points into a different table per `item_type`. So a routine
+      author action — adding a second Final Order to a case that already has one — silently
+      destroys the row that every completed run for the first order points at. Nothing errors.
+
+      **The rated item is then unrecoverable.** `order_text` is never copied onto `panel_runs`, so
+      after a replace there is no way to say what a stored distribution was measuring; only
+      `claim_hash` survives, and it is a hash. This directly contradicts the append-only intent
+      written on `PanelRun` itself: "For a research dataset, what was generated and when is part of
+      the data, so nothing is overwritten." Re-runs honour that; edits do not.
+
+      Cheapest correct fix is to **denormalise the rated claim onto the run** (`order_text`,
+      `stem_action`) at creation, so a run stays self-describing regardless of what happens to the
+      order row. Soft-delete on `case_final_orders`, or making replace an upsert that preserves ids
+      for unchanged rows, both also work and are larger. Until one lands, **add Final Orders to a
+      disposable case rather than to one that has already been rated.**
+
 ## Phase 3 — Oracle panel
 
 **Built 2026-07-29.** Same caveat.
@@ -257,16 +317,19 @@ first real run" below.
       provider serves both paths `ADR-016`
 - [x] **Oracle/learner content parity check** — blocks the panel when the structured record and the
       simulator's content have diverged
-- [x] **`OPENROUTER_API_KEY` is set in Container Apps.** Inferred rather than read: `LLMService()`
-      is constructed at import and `build_client()` raises on a missing key, so a backend that
-      serves `GET /` has a non-empty one. **Non-empty is not the same as valid** — a revoked key
-      passes startup and fails 60 seconds later inside a model call, which is exactly what the
-      local `.env` did. Unproven until a panel actually runs
-- [ ] End-to-end pass: author a case with 2 Final Orders, run the panel, confirm 15 ratings land,
-      the histogram renders, and the flags are sensible
+- [x] **`OPENROUTER_API_KEY` in Container Apps is proven valid** (2026-07-31), not merely
+      non-empty. Startup only established the latter, and a revoked key passes startup and fails
+      inside the model call — which is exactly what the local `.env` did. Settled by running the
+      panel through the deployed backend: 15 real calls returned content
+- [x] End-to-end pass through the production URL: 15/15 ratings landed, aggregates computed
+      (histogram, entropy, SCT credit, transparency rate), and the item-quality flag fired
+      correctly. **One Final Order, not two**, and the item was unanimous — see the caveat under
+      "Oracle: verified in production" above
+- [ ] Still open: run the panel on a **debatable** item, and on more than one Final Order at once
 - [ ] Confirm the background task survives an Azure Container Apps replica for the full 3–5
       minutes. `BackgroundTasks` runs in-process, so a scale-in mid-run leaves a run stuck in
-      `running` with no reaper
+      `running` with no reaper. **Not yet exercised** — a 1-item run finishes in ~8 s, nowhere near
+      the window where scale-in matters
 
 ## Phase 4 — Editing model
 
@@ -550,42 +613,59 @@ Standard registry in `lab-simulation` and may serve other projects.
 
 ### direct-sim dependency advisories
 
-- [ ] **Clear the remaining pip backlog.** Enumerated 2026-07-31 via
-      `gh api repos/DrDavidL/direct-sim/dependabot/alerts --paginate`. Of the 65 open alerts, the
-      npm side is handled by PR #13 (urllib3, all `react-router`); what is left is **almost
-      entirely Python, runtime scope, and each package is one or two patches behind**:
+- [x] **Pip backlog cleared 2026-07-31** — `direct-sim 389af1c`, deployed and verified live
+      (`GET /api/version` reports `389af1c`, so the revision actually rolled).
 
-      | Package | Locked | Patched | Alerts |
-      |---|---|---|---|
-      | Pillow | 12.2.0 | 12.3.0 | 13 |
-      | GitPython | 3.1.47 | 3.1.55 | 11 |
-      | PyJWT | 2.12.1 | 2.13.0 | 5 |
-      | tornado | 6.5.5 | 6.5.7 | 4 |
-      | starlette | 1.0.0 | 1.3.1 | 4 |
-      | soupsieve | 2.8.3 | 2.8.4 | 2 |
-      | idna | 3.11 | 3.15 | 1 |
-      | Mako | 1.3.11 | 1.3.12 | 1 |
-      | weasyprint | 68.1 | **none exists** | 1 |
+      Nine targeted bumps, one `uv lock --upgrade-package <name>==<version>` each: Pillow
+      12.2.0→12.3.0, GitPython 3.1.47→3.1.55, PyJWT 2.12.1→2.13.0, starlette 1.0.0→1.3.1, tornado
+      6.5.5→6.5.7, soupsieve 2.8.3→2.8.4, idna 3.11→3.15, Mako 1.3.11→1.3.12, click 8.3.2→8.3.3.
+      **42 of the 46 open alerts are addressed.** Zero packages added or removed, and this time
+      weasyprint and uvicorn did not ride along.
 
-      One `uv lock --upgrade-package <name>` per row, **not** `--exclude-newer` and **not** a bare
-      `uv lock --upgrade`: the guard re-resolves the whole tree and dragged weasyprint 68→69 and
-      uvicorn 0.43→0.51 into a three-line urllib3 bump. Then `uv sync --frozen`, `ruff`, and
-      import the backend modules.
+      Four things worth carrying forward:
 
-      **GitPython's 11 alerts need no work at all** — it is a Streamlit transitive and Phase 4e
-      deletes it. **weasyprint has no patched version**, so it can only be recorded, not fixed.
-- [ ] **Unpause Dependabot. It is paused because its PRs went unmerged**, which is GitHub's
-      inactivity behaviour. The record, checked 2026-07-31: it produced 11 PRs between
-      2025-04-24 and 2026-02-05, of which **5 merged and 6 were closed unmerged**, and then it
-      stopped entirely. That closed-unmerged ratio is what pauses it. Unpause by interacting with
-      a Dependabot PR, or "Check for updates" on the Dependabot page.
+      - **Pin the exact version, do not bare-`--upgrade-package`.** `gitpython` 3.1.55 was exactly
+        8 days old while 3.1.56/3.1.57 were inside the 7-day window; an unpinned upgrade would have
+        taken them. Every target's PyPI upload date was checked, not assumed.
+      - **`click` 8.3.3 (PYSEC-2026-2132) was found by pip-audit and is absent from Dependabot
+        entirely.** The two scanners use different advisory databases, so neither enumeration is
+        complete alone — the table this item used to contain was built from the alerts API and was
+        short by one package plus a fifth starlette advisory.
+      - **GitPython is no longer an argument for hurrying Phase 4e.** Its 11 alerts were written
+        off here as "cleared for free when Streamlit goes"; one lockfile line cleared them today.
+      - **weasyprint still has no patched release.** Recordable, not fixable, and it is what makes
+        a naive `pip-audit` pre-commit gate permanently red — see failure 5 above.
 
-      **Do not diagnose this from workflow runs.** `Dependabot Updates` runs show as `cancelled`
-      as a matter of course, and a paused job sits `queued` with zero steps indefinitely, so the
-      Actions view looks exactly like a broken or unbilled runner. Two separate wrong conclusions
-      came out of reading it that way on 2026-07-31. Check the **PR history** instead:
-      `gh pr list --state all --author "app/dependabot"` tells you in one line whether the bot has
-      ever worked and when it stopped.
+      Remaining open after this: weasyprint, plus three npm dev-only alerts (`vite` ×2,
+      `@babel/core`) that never reach a student.
+- [ ] **Dependabot — the diagnosis in this file was wrong about which repo, corrected 2026-07-31.**
+      There is an API that answers it directly, and it should have been the first thing checked:
+
+      ```bash
+      gh api repos/DrDavidL/direct-sim/automated-security-fixes        # {"enabled":true,"paused":false}
+      gh api repos/DrDavidL/case-gen-entropy/automated-security-fixes  # {"enabled":true,"paused":true}
+      ```
+
+      **`direct-sim` is not paused. `case-gen-entropy` is.** The entry previously here asserted the
+      opposite, reasoning from `direct-sim`'s PR history (11 PRs, 5 merged, 6 closed unmerged,
+      stopped 2026-02-05). That ratio is consistent with a pause but does not establish one, and
+      the flag says otherwise. Neither repo has a `.github/dependabot.yml`, so only *security*
+      updates exist in either — which makes that one endpoint the whole picture, not part of it.
+
+      This is the **third** wrong conclusion drawn about Dependabot here in one day. The lesson the
+      previous two produced was "read the PR history, not the Actions view." That was still
+      indirect evidence. Read the flag.
+
+- [ ] **Separately: `direct-sim`'s dependency graph has not refreshed since April 2026.** Its
+      `Graph Update: uv in /.` jobs sit `queued` with **zero steps** — three fired on 2026-07-31
+      alone, and the last runs to reach any terminal state were two `cancelled` ones on 2026-04-28.
+      Ordinary workflows (Build and Deploy, Secret scan) ran fine on `389af1c` at the same moment,
+      so this is not a general runner outage; it is specific to Dependabot's `dynamic` workflows.
+
+      **Consequence, confirmed:** the open-alert count did not move after `389af1c` shipped. The
+      lockfile on `main` and the deployed image are genuinely fixed, but GitHub will keep reporting
+      46 open alerts until the graph refreshes. Treat the alert list as stale evidence and trust
+      `pip-audit` against the actual lock, which reports only weasyprint.
 
 - [ ] Delete the 9 stale `origin/dependabot/pip/*` branches left behind by closed PRs
       (`h11-0.16.0`, `pip-26.0`, `protobuf-5.29.5`, `protobuf-5.29.6`, `requests-2.32.4`,
@@ -636,18 +716,15 @@ npm audit --omit=dev --audit-level=high    # must exit 0
 
 Then a login-and-load smoke test against the built SPA before pushing.
 
-- [ ] **Change the pre-push gate to `npm audit --omit=dev --audit-level=high`.** As written it
-      counts eslint's own dev-only DoS advisories, so it can only pass after an eslint 10
-      migration and will otherwise be bypassed by hand forever — which is what happened on
-      2026-07-31 pushing the transcript fix. A gate routinely overridden is not a gate. Scoping it
-      to what ships makes it pass the moment `react-router` is fixed, and makes a future failure
-      mean something. The hook is `~/.claude/hooks/pre-push-checks.sh`, outside both repos
-- [ ] Optional, separate: **eslint 10 migration**, the only way to clear the `brace-expansion` /
-      `minimatch` chain. Not urgent — it is lint-time DoS in a local dev tool
-- [ ] `postcss` override `8.5.10` → `8.5.18` (published 2026-07-12, already clears the rule).
-      Build-time only, but free and verified to build
-- [ ] A formatting-only commit (`542c08e`) is committed but unpushed in `direct-sim`, blocked
-      behind the same audit gate.
+- [x] **Pre-push gate scoped to `npm audit --omit=dev --audit-level=high`.** Verified in
+      `~/.claude/hooks/pre-push-checks.sh` on 2026-07-31: it blocks on shipped dependencies only
+      and prints a non-blocking WARN for dev-only advisories. The reasoning is written into the
+      hook itself. That file also now runs `npx tsc -b --force`, so failure 1 above is fixed there
+      too. **Both of these entries were stale — the work was already done.**
+- [x] **eslint 10 migration** — `frontend/package.json` declares `eslint ^10.8.0`, with
+      `minimatch 10.2.5` and `brace-expansion 5.0.8` overrides resolving the chain. Landed in PR #13
+- [x] `postcss` override at `8.5.18`. Landed in PR #13
+- [x] The formatting-only commit `542c08e` is on `origin/main`; nothing is unpushed in `direct-sim`
 
 ### Security posture
 
