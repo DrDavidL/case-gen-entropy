@@ -1,16 +1,16 @@
 # Draft email to Cory and Alex
 
-> **Before sending — this draft asserts things that are not true yet.**
+> **Before sending — one item left.**
 >
-> The email says both apps are running the new code. As of 2026-07-30 the Final Orders and
-> Oracle work is deployed, but the **case versioning and adoption work from 2026-07-30 is
-> committed nowhere and deployed nowhere**. Either deploy it first or cut the two sections
-> marked `[needs deploy]` below, because both describe buttons that do not exist in the
-> live app yet.
+> Deployed and verified 2026-07-30: case-gen backend is `663e0c3`, direct-sim is `87b15d3`,
+> both build stamps confirmed via their version endpoints rather than trusting a green CI
+> check (ADR-012). The `POST .../adopt` and `POST .../copy` routes answer in production, and
+> a legacy case's error message now points at adoption. Everything the email describes is live.
 >
-> Also confirm before sending: `OPENROUTER_API_KEY` is set as a Container Apps secret, and
-> `curl https://casegen-backend.../` returns a `build.git_sha` matching what you deployed.
-> A deploy that silently did not roll is a documented failure mode here (ADR-012).
+> Still outstanding: **the Oracle panel has never been run on a real case.** The email invites
+> Cory and Alex to run one, and the OpenRouter key in Container Apps is proven non-empty but
+> not proven *valid* — a revoked key passes startup and fails inside the model call. Run one
+> panel end to end before sending, or you are asking them to be the first to find out.
 
 **Subject:** Final Orders and Oracle panel are live for testing, plus one decision we need from you
 
@@ -39,7 +39,7 @@ Cory, five of your answers went straight into the build:
 - **The otolaryngologist seat is now an "applicable specialty surgeon or subspecialist"** set per
   case, so a cardiac case gets a cardiac subspecialist rather than an ENT.
 
-And one from your March list rather than the recent round. `[needs deploy]` **Editing a saved case
+And one from your March list rather than the recent round. **Editing a saved case
 no longer overwrites it.** Editing was the item you raised first back then, and it was working, but
 in a way that quietly destroyed information: every save replaced the case in place, so if a case
 was edited after students had run it, there was no record that it had changed and no way to tell
@@ -113,7 +113,7 @@ lost by waiting, since no case carries Final Orders yet.
 
 Everything below happens inside the apps, so there is nothing to install.
 
-`[needs deploy]` **One thing to know first, if you plan to use a case you already have.** Final
+**One thing to know first, if you plan to use a case you already have.** Final
 Orders and the Oracle both hang off a structured record of the case that we only started storing
 recently, and almost none of the existing cases have one — the analysis behind them was generated
 and thrown away at the time, which is the flaw this whole rebuild exists to correct. So on an older
@@ -152,7 +152,7 @@ skips all of this**, which is the smoother path if you have no particular case i
    agreement, and a plain-language flag telling you whether the item will separate learners.
    - The flags are the point of the whole exercise. **"Low discrimination" means the item is not
      worth using.** Seeing that before students run the case is exactly what we wanted.
-8. `[needs deploy]` **Edit the case content, save it again, and re-run the panel.** You will be
+8. **Edit the case content, save it again, and re-run the panel.** You will be
    asked how to record the save; take the default, which is a new version. The panel then runs on
    what you just wrote. Behind that is a guard worth knowing about: the panel refuses to rate a
    case that differs from the one the student will see, and the default save keeps the two in step

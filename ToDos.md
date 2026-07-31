@@ -9,24 +9,27 @@ Simulator-side work is tracked separately in `../direct-sim/FINAL_ORDERS_TODO.md
 
 ## Start here — state as of 2026-07-30
 
-**Phases 1 through 3 are built and deployed. The 2026-07-30 work is in the working tree and
-committed nowhere.** That is the first thing a fresh session needs to know.
+**Phases 1 through 3 are built, deployed, and verified live.** Both working trees are clean.
 
-| | Verified how |
-|---|---|
-| case-gen live build | `35e17a7`, matching local `main` | `GET /` returned it, built 18:31Z |
-| direct-sim live build | local `main` is `276092c` | **not verified** — check `GET /api/version` |
+| | | Verified how |
+|---|---|---|
+| case-gen live build | `663e0c3` | `GET /` on the backend, built 23:56Z |
+| direct-sim live build | `87b15d3` | `GET /api/version` on **`direct-sim-beta`** |
 | Shared DB revision | `0003_final_orders_and_panels` | queried `alembic_version` directly |
-| `authoring` tables | all 7 present, including `panel_runs` / `panel_ratings` | queried `information_schema` |
-| Deploy | push to `main` in either repo | both pipelines green as of `35e17a7` |
+| `authoring` tables | all 7, including `panel_runs` / `panel_ratings` | queried `information_schema` |
+| Deploy | push to `main` in either repo | both pipelines green at the SHAs above |
 
-### Uncommitted work in the tree (2026-07-30)
+**The FQDN that answers `/api/version` is `direct-sim-beta`, not `direct-sim`.** The deploy
+workflow updates both apps; `direct-sim` is the legacy Streamlit one and returns its index HTML
+for every path, so a version check against it looks like a broken endpoint rather than the wrong
+app. Full host:
+`direct-sim-beta.yellowmushroom-f2e62d1e.eastus.azurecontainerapps.io`
 
-`git status` is **not** clean in either repo. Nothing below is committed or deployed.
+### Shipped 2026-07-30 — `ADR-019`
 
-- **case-gen-entropy** — 8 modified, 2 new. Case versioning and adoption (`ADR-019`), a
-  fail-closed guard on a missing primary diagnosis, and secret scanning.
-- **direct-sim** — 2 new files, secret scanning only. No behaviour change.
+`case-gen-entropy 663e0c3`, `direct-sim 87b15d3`. Confirmed live in production: `POST
+.../adopt` and `POST .../copy` answer `401` unauthenticated (route present, auth enforced) where
+an unknown path answers `404`, and a legacy case's Oracle error now names the adoption route.
 
 What `ADR-019` changed, in one paragraph: saving an edited case used to overwrite the simulator
 row and write no version, and separately, 102 of the 103 existing cases had no `case_version` at
@@ -48,13 +51,20 @@ Order and it is gated on the stem decision, not on code.
 
 ### The immediate next actions, in order
 
-1. **Commit and deploy the working tree**, then confirm `GET /` moves off `35e17a7`. Until then
-   `docs/email-draft-2026-07-30.md` cannot be sent — it describes buttons that are not live, and
-   the sections that depend on them are marked `[needs deploy]`.
-2. **Get the rating stem confirmed by the group.** Still the one decision that is expensive to
-   change later: it invalidates every distribution generated under the old wording.
+1. **Run one Oracle panel end to end.** It has still never happened on a real case, and it is the
+   last thing standing between here and sending `docs/email-draft-2026-07-30.md` — which invites
+   Cory and Alex to run one. The OpenRouter key in Container Apps is proven non-empty (the backend
+   would not start otherwise) but **not proven valid**: a revoked key passes startup and fails
+   inside the model call, which is exactly what the local `.env` did on 2026-07-30. Sending first
+   means asking them to be the ones who find out.
+2. **Get the rating stem confirmed by the group** before that panel generates anything anyone
+   keeps. Still the one decision that is expensive to change later: it invalidates every
+   distribution generated under the old wording.
 3. **Adopt the OSCE cases that are actually in use** and skim what the reconstruction produced.
-4. Then the first real panel run, and the verification pass under "Deploy integrity" below.
+4. Then the verification pass under "Deploy integrity" below.
+5. **Dependabot**, surfaced by the 2026-07-30 push and not yet looked at: **65 advisories on
+   direct-sim (42 high)** and **9 on case-gen (2 high)**. Separate from the secret-scanning work
+   and worth clearing before students touch the simulator.
 
 ### Environment — changed 2026-07-30, will bite a fresh session
 
