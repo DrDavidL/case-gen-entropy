@@ -10,11 +10,12 @@ Simulator-side work is tracked separately in `../direct-sim/FINAL_ORDERS_TODO.md
 ## Start here — state as of 2026-07-31
 
 **Phases 1 through 3 are live. Phase 4a and 4b are live. `ADR-020` (React SPA) is the active
-workstream. Three of Phase 4c's four blockers are done; what remains is the editor itself.**
+workstream. **Phase 4c is built and deployed** — all four blockers plus the editor. What it has
+not had is a human opening it in a browser.**
 
 | | | Verified how |
 |---|---|---|
-| case-gen live build | `64ee481` | `GET /` on the backend |
+| case-gen live build | `18d426f` | `GET /` on the backend |
 | direct-sim live build | `389af1c` | `GET /api/version` on **`direct-sim-beta`** |
 | Shared DB revision | `0004_panel_run_item_snapshot` | `alembic current` + queried `alembic_version` |
 | `authoring` tables | all 7, including `panel_runs` / `panel_ratings` | queried `information_schema` |
@@ -35,7 +36,7 @@ workstream. Three of Phase 4c's four blockers are done; what remains is the edit
   bump. **Now redundant** — PR #13 does it. It no-ops safely, but disable it at
   <https://claude.ai/code/routines>
 
-### Six failures found on 2026-07-31, all the same shape
+### Seven failures found on 2026-07-31, all the same shape
 
 Each is a check that **ran, reported success, and verified the wrong thing.** Same family as
 `ADR-012`'s mutable image tag, which let a four-month-old image serve behind green deploys. When
@@ -85,6 +86,25 @@ touching any gate, prove it fails on a deliberate defect before trusting that it
    `types.gen.ts` ignored explicitly as a generated artifact, and `build` now runs `gen:types`
    first so a clean checkout generates types instead of failing on a missing module.
    **Verified by actually cloning the repo and building it**, not by simulating.
+
+7. **The committed `openapi.json` described an API the backend does not serve** — and the gate
+   written to catch that class of problem was itself hollow on the first try. Two parts:
+
+   - `scripts/dump_openapi.py` imports the app, which runs `Base.metadata.create_all()` and probes
+     the authoring schema at module scope. With no database the dump **died, wrote nothing, and
+     left the committed file untouched** — so a "is the schema current?" diff came back clean. A
+     deliberately planted stale schema passed. Fixed by neutralising `create_all` and the probes
+     inside the dump script, not by making production code conditional on a build-only env var.
+   - Once the gate actually ran, it failed immediately and correctly. The schema had been generated
+     with `uv run --with fastapi --with pydantic`, which resolves the **newest** releases, while
+     `requirements.txt` pins fastapi 0.104.1 / pydantic 2.5.0 — what the production image installs.
+     The generated JSON Schema is version-sensitive (2.5.0 wraps `$ref`s in `allOf` and omits
+     `additionalProperties`; newer adds `ctx`/`input` to `ValidationError`). Every TypeScript type
+     was therefore generated from a description of a different API version.
+
+   **Generate against `requirements.txt`, always.** An ad-hoc `--with` silently reintroduces it.
+   Field names happened to match this time, so nothing broke at runtime — which is exactly why it
+   would have gone on indefinitely.
 
 **The FQDN that answers `/api/version` is `direct-sim-beta`, not `direct-sim`.** The deploy
 workflow updates both apps; `direct-sim` is the legacy Streamlit one and returns its index HTML
@@ -511,24 +531,35 @@ nested `door_chart.vital_signs`) and 3 dynamic lists.
       **Still to wire:** the dialog exists and is correct, but nothing calls it yet — the save
       path it guards is part of the editor below
 
-*The editor itself:*
+*The editor itself — built `659d6ef`, deployed:*
 
-- [ ] One `Field`/`FieldGroup` primitive pair driven off the generated types, not 49 hand-written
-      inputs
-- [ ] Rendered-markdown preview pane, server-rendered against the endpoint above
-- [ ] Dynamic list rows keyed by stable id. This is the specific thing Streamlit could not do
-      safely — see the `sim_image_links` leak in `CLAUDE.md`
-- [ ] Detach action shows the `ADR-002` warning **before** detaching, not after
-- [ ] Surface content-parity state continuously. `check_content_parity()` blocks the Oracle when
-      structured and markdown diverge; structured-first editing makes that rare but the detach
-      path still produces it, and discovering it at Oracle time is too late
+- [x] `Field`/`FieldGroup` driven off a declarative spec in `web/src/lib/fieldSpec.ts`, whose keys
+      are checked at compile time via `StringKeys<T>` over the generated types. **That check is the
+      point**: a field renamed server-side becomes a type error instead of a blank input an author
+      cannot distinguish from an empty value, saving with the real field untouched
+- [x] Server-rendered preview pane, debounced 400 ms against `/sim-ready/render-preview`
+- [x] Dynamic list rows keyed by a client-side stable id, stripped by `toApi` before the write.
+      Index keys are the same family as the `sim_image_links` leak — remove a row and every row
+      below shifts, so React reuses the wrong node and an author's cursor and in-flight edit land
+      on a different row
+- [x] `DetachedSaveConfirm` fires **only** on `render_detached`. `content_drift` also breaks parity,
+      but a structured save is the correct repair for it with nothing to discard
+- [x] `ParityBanner` on both the case view and the editor
+
+      **Verified:** nine assertions on the row logic, including that deleting the first row leaves
+      the second row's id and data intact; then a live round-trip proving the editor's exact payload
+      is accepted and re-renders the stored markdown **byte for byte**, so opening a case and saving
+      without edits is a no-op, while a real edit does change the render.
+
+- [ ] **Not yet done: a human has not opened it in a browser.** Everything above is verified
+      headlessly. Drive it once against a real case before telling anyone it is ready
 
 *Cheap, missing, and independent of the above:*
 
-- [ ] **CI must run `scripts/dump_openapi.py` and fail if the result is dirty.** Still not wired,
-      so a model change can land without its schema and the types silently describe the old API
-- [ ] `PUT /sim-ready/case/{id}/final-orders` needs a `response_model` so `detached_panel_runs`
-      reaches the generated types
+- [x] **`.github/workflows/schema-check.yml`** regenerates the schema and fails if it differs from
+      what is committed. Proven to fail before being trusted to pass — see failure 7 below
+- [x] `PUT /sim-ready/case/{id}/final-orders` now declares `FinalOrdersUpdateResponse`, so
+      `detached_panel_runs` reaches the generated types and the Phase 4d editor can surface it
 
 **Phase 4d — remaining screens.** Generate form, Final Orders editor, Oracle view (histograms,
 preflight, leak audit), Export. All against endpoints that already exist.
