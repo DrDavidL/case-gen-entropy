@@ -32,7 +32,34 @@ OUT = ROOT / "web" / "openapi.json"
 # required" while the key sits correctly in .env.
 if not os.environ.get("OPENROUTER_API_KEY"):
     os.environ["OPENROUTER_API_KEY"] = "schema-dump-placeholder"
+os.environ.setdefault(
+    "POSTGRES_URL", "postgresql://schema:dump@localhost:5432/placeholder"
+)
 sys.path.insert(0, str(ROOT))
+
+# Importing the app also runs `Base.metadata.create_all()` and probes the authoring
+# schema, both at module scope — so without a reachable database the import raises and
+# this script writes nothing. That made the docstring above false, and it made a CI
+# "is the schema current?" check hollow: the dump would die, leave the committed file
+# untouched, and the diff would come back clean. Caught by planting a deliberately stale
+# schema and watching the check pass anyway.
+#
+# Neutralised here rather than in the app. `create_all` becoming conditional on an env
+# var would be a production behaviour switch existing only to serve a build script, and
+# the readiness probes failing soft is exactly what should NOT happen on a real backend.
+# The route table is what is being read, and it does not depend on either.
+import sqlalchemy  # noqa: E402
+
+from backend.models import database as _db  # noqa: E402
+
+sqlalchemy.MetaData.create_all = lambda *a, **k: None  # type: ignore[method-assign]
+# Reported as available so the dump matches a healthy deployment. These flags gate
+# request-time behaviour, never route registration, so this cannot change the schema —
+# but pinning them keeps the output independent of whatever database happens to be
+# reachable when the dump runs.
+_db.authoring_schema_ready = lambda _bind: True  # type: ignore[assignment]
+_db.final_orders_schema_ready = lambda _bind: True  # type: ignore[assignment]
+_db.panel_run_snapshot_ready = lambda _bind: True  # type: ignore[assignment]
 
 from backend.app.main import app  # noqa: E402
 

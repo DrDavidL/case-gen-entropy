@@ -29,6 +29,7 @@ from backend.models.database import (
 from backend.models.editing_schemas import (
     AdoptCaseRequest,
     AuthCheckResponse,
+    FinalOrdersUpdateResponse,
     CaseEditRequest,
     CasePreviewResponse,
     CaseSaveRequest,
@@ -2118,7 +2119,10 @@ async def get_case_final_orders(case_id: int):
         sim_db.close()
 
 
-@app.put("/sim-ready/case/{case_id}/final-orders")
+@app.put(
+    "/sim-ready/case/{case_id}/final-orders",
+    response_model=FinalOrdersUpdateResponse,
+)
 async def update_case_final_orders(
     case_id: int,
     update: FinalOrdersUpdateRequest,

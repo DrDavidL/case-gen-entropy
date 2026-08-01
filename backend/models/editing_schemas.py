@@ -268,6 +268,32 @@ class SimReadyStructuredUpdateRequest(BaseModel):
     oracle_specialty: str | None = None
 
 
+class DetachedPanelRun(BaseModel):
+    """A Final Order that was removed while carrying completed panel runs."""
+
+    final_order_id: int
+    order_text: str
+    panel_runs_detached: int
+
+
+class FinalOrdersUpdateResponse(BaseModel):
+    """`PUT /sim-ready/case/{id}/final-orders`.
+
+    `detached_panel_runs` is the reason this model exists. Removing a rated order leaves
+    its completed runs with no live item — permitted, since the author's list is
+    authoritative, but never silent. Without a declared `response_model` the field would
+    be invisible to the generated TypeScript, so the editor could not surface it and the
+    warning would exist only in the server log.
+    """
+
+    case_id: int
+    case_version_id: int
+    oracle_specialty: str | None = None
+    final_orders: list[dict[str, Any]] = Field(default_factory=list)
+    oracle_started: bool = False
+    detached_panel_runs: list[DetachedPanelRun] = Field(default_factory=list)
+
+
 class AuthCheckResponse(BaseModel):
     """Result of validating a credential, for the SPA's login form (ADR-021)."""
 

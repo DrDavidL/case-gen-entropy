@@ -459,6 +459,30 @@
         "title": "CaseSaveRequest",
         "type": "object"
       },
+      "DetachedPanelRun": {
+        "description": "A Final Order that was removed while carrying completed panel runs.",
+        "properties": {
+          "final_order_id": {
+            "title": "Final Order Id",
+            "type": "integer"
+          },
+          "order_text": {
+            "title": "Order Text",
+            "type": "string"
+          },
+          "panel_runs_detached": {
+            "title": "Panel Runs Detached",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "final_order_id",
+          "order_text",
+          "panel_runs_detached"
+        ],
+        "title": "DetachedPanelRun",
+        "type": "object"
+      },
       "DiagnosticBucket": {
         "properties": {
           "description": {
@@ -878,6 +902,56 @@
           }
         },
         "title": "FinalOrdersUpdateRequest",
+        "type": "object"
+      },
+      "FinalOrdersUpdateResponse": {
+        "description": "`PUT /sim-ready/case/{id}/final-orders`.\n\n`detached_panel_runs` is the reason this model exists. Removing a rated order leaves\nits completed runs with no live item \u2014 permitted, since the author's list is\nauthoritative, but never silent. Without a declared `response_model` the field would\nbe invisible to the generated TypeScript, so the editor could not surface it and the\nwarning would exist only in the server log.",
+        "properties": {
+          "case_id": {
+            "title": "Case Id",
+            "type": "integer"
+          },
+          "case_version_id": {
+            "title": "Case Version Id",
+            "type": "integer"
+          },
+          "detached_panel_runs": {
+            "items": {
+              "$ref": "#/components/schemas/DetachedPanelRun"
+            },
+            "title": "Detached Panel Runs",
+            "type": "array"
+          },
+          "final_orders": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Final Orders",
+            "type": "array"
+          },
+          "oracle_specialty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oracle Specialty"
+          },
+          "oracle_started": {
+            "default": false,
+            "title": "Oracle Started",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "case_id",
+          "case_version_id"
+        ],
+        "title": "FinalOrdersUpdateResponse",
         "type": "object"
       },
       "HPIDetails": {
@@ -3076,7 +3150,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/FinalOrdersUpdateResponse"
+                }
               }
             },
             "description": "Successful Response"

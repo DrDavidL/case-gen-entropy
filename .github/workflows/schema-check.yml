@@ -1,0 +1,62 @@
+name: OpenAPI schema is current
+
+# `web/openapi.json` is the contract the frontend's TypeScript types are generated from
+# (ADR-020). Nothing forced it to stay in step with the route table, so a request or
+# response model could change and the committed schema would keep describing the old API
+# — and because the types are *generated*, they would look authoritative while being
+# wrong. That is the same shape as failure 3 in ToDos, where endpoints without a
+# `response_model` produced types that described nothing.
+#
+# This regenerates the schema from the live route table and fails if the result differs
+# from what is committed. It builds nothing and deploys nothing.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  schema-current:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Regenerate the schema
+        # No database and no real keys. The dump script neutralises `create_all` and the
+        # schema probes before importing the app, so this reads the route table and
+        # nothing else — see the comment there for why that is done in the script rather
+        # than by making production code conditional.
+        #
+        # Proven before this workflow was committed, because a check nobody has seen fail
+        # is not a check: with a planted stale schema the dump used to die on the missing
+        # database, write nothing, and let the diff come back clean. It now restores the
+        # file with no database at all, and fires on a planted response-model change.
+        run: python scripts/dump_openapi.py
+
+      - name: Fail if the committed schema is stale
+        run: |
+          if ! git diff --quiet -- web/openapi.json; then
+            echo "::error::web/openapi.json is out of date with the route table."
+            echo "Run this and commit the result:"
+            echo "  uv run python scripts/dump_openapi.py && (cd web && npm run gen:types)"
+            echo ""
+            git --no-pager diff -- web/openapi.json
+            exit 1
+          fi
+          echo "web/openapi.json matches the route table."
