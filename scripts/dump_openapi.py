@@ -10,6 +10,15 @@ Run after changing any request or response model:
 
     uv run python scripts/dump_openapi.py && (cd web && npm run gen:types)
 
+**Run it against the pinned dependencies in `requirements.txt`**, which is what the
+production image installs and what CI checks. The generated JSON Schema is
+version-sensitive: fastapi 0.104.1 / pydantic 2.5.0 wrap `$ref`s in `allOf` and omit
+`additionalProperties`, where newer versions do the opposite. Generating with an ad-hoc
+`uv run --with fastapi --with pydantic` pulls the newest releases and produces a schema
+that does not describe the deployed API — which is how the committed schema came to
+disagree with production on 2026-07-31, caught by the schema-check workflow on its first
+run.
+
 CI should run this and fail if the result is dirty, so a model change cannot land without
 its schema.
 """
