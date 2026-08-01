@@ -530,9 +530,27 @@ async def finalize_case(
 
         if is_sim_ready:
             # --- Sim-Ready path: save to case_details table in sim-ready DB ---
-            rendered_content = (
-                save_request.rendered_content
-                or render_sim_ready_content(session_data.case_details)
+            # Render from the record regardless, so the supplied content can be compared
+            # against it rather than merely counted as present.
+            canonical_content = render_sim_ready_content(session_data.case_details)
+            rendered_content = save_request.rendered_content or canonical_content
+
+            # `render_detached` means "someone hand-edited the markdown, so it no longer
+            # follows the structured record". It used to be set from
+            # `rendered_content is not None`, which is presence, not difference -- and
+            # both UIs send the content back on every save whether or not the author
+            # touched it. So EVERY case created through the Generate flow was born marked
+            # as hand-edited, which blocks the Oracle on a brand-new case and shows the
+            # author a destructive-save confirmation for an edit they never made.
+            #
+            # Compare instead, whitespace-insensitively, reusing the same normalisation
+            # `check_content_parity` uses. Same reasoning as there: a check that fires
+            # when nothing changed is one people learn to route around, and this one
+            # blocks a panel.
+            detached_at_save = (
+                save_request.rendered_content is not None
+                and oracle_service.normalize_content(save_request.rendered_content)
+                != oracle_service.normalize_content(canonical_content)
             )
             saved_name = save_request.title or session_data.case_details.get(
                 "case_title", f"Case: {save_request.primary_diagnosis}"
@@ -589,7 +607,7 @@ async def finalize_case(
                             feature_likelihood_ratios=session_data.feature_likelihood_ratios,
                             output_format="sim_ready",
                             rendered_content=rendered_content,
-                            render_detached=save_request.rendered_content is not None,
+                            render_detached=detached_at_save,
                             case_detail_id=saved_case_id,
                             oracle_specialty=save_request.oracle_specialty,
                         )
