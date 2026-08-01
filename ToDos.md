@@ -552,7 +552,16 @@ nested `door_chart.vital_signs`) and 3 dynamic lists.
       without edits is a no-op, while a real edit does change the render.
 
 - [ ] **Not yet done: a human has not opened it in a browser.** Everything above is verified
-      headlessly. Drive it once against a real case before telling anyone it is ready
+      headlessly. Drive it once against a real case before telling anyone it is ready.
+
+      **It is now reachable** (`58fcab6`):
+      <https://casegen-backend.greenbush-b78bdd23.eastus.azurecontainerapps.io/app>
+
+      Sign in top-right with `APP_USERNAME` / `APP_PASSWORD`, open a case, click *Edit
+      fields*. Reads work signed out; only saving needs the credential. **Case 106 ("New
+      tester") is the safe one to edit** — it is a throwaway with an authoring record.
+      Most of the other 102 cases have no `case_version` and will say so rather than let
+      you edit them `ADR-019`
 
 *Cheap, missing, and independent of the above:*
 
@@ -564,8 +573,16 @@ nested `door_chart.vital_signs`) and 3 dynamic lists.
 **Phase 4d — remaining screens.** Generate form, Final Orders editor, Oracle view (histograms,
 preflight, leak audit), Export. All against endpoints that already exist.
 
-**Phase 4e — cutover.** FastAPI serves `web/dist` the way `direct-sim/Dockerfile.react` serves
-`frontend/dist`. Note the path is `web/`, not `frontend/`.
+**Phase 4e — cutover.** The *serving* half is done (`58fcab6`); the retirement half is not, and
+should not happen until the editor has actually been used.
+
+- [x] FastAPI serves `web/dist` **at `/app`, not `/`**. `GET /` stays the build stamp every deploy
+      is verified against — shadowing it with `index.html` would remove the only signal that says
+      whether a revision rolled `ADR-012`. The prefix also means the catch-all cannot shadow an API
+      route. Path containment is checked before any filesystem access
+- [x] The node stage in `Dockerfile.backend` installs `npm@11.6.2` before `npm ci`, because
+      `web/package.json` declares that packageManager and `node:22-slim` ships npm 10.x — the same
+      mismatch that broke direct-sim's deploy. `node:22`, not 20, for react-router 8
 
 - [ ] **Build the SPA on `node:22-slim` or newer, not `node:20-slim`.** `react-router@8.3.0`
       declares `engines.node >=22.22.0`. direct-sim hit exactly this: the router migration was
