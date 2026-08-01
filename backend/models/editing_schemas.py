@@ -314,6 +314,102 @@ class FinalOrdersUpdateResponse(BaseModel):
     detached_panel_runs: list[DetachedPanelRun] = Field(default_factory=list)
 
 
+class SuppressionTermGroup(BaseModel):
+    """Everything the simulator should treat as one Final Order."""
+
+    final_order_id: int
+    terms: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
+class FinalOrdersResponse(BaseModel):
+    """`GET /sim-ready/case/{id}/final-orders`.
+
+    Unauthenticated, and stays that way: this is the shape the simulator reads
+    (direct-sim/FINAL_ORDERS_TODO.md). A case with no authoring record returns an empty
+    list rather than 404 — the simulator must treat that as "behave exactly as before".
+    """
+
+    case_id: int
+    case_version_id: int | None = None
+    oracle_specialty: str | None = None
+    final_orders: list[dict[str, Any]] = Field(default_factory=list)
+    suppression_terms: list[SuppressionTermGroup] = Field(default_factory=list)
+
+
+class ProposedFinalOrdersResponse(BaseModel):
+    """`POST /final-orders/propose` — candidates only. Writes nothing.
+
+    The author accepts explicitly; provenance records which orders came from the model
+    so a self-fulfilling distribution stays testable (ADR-004).
+    """
+
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class OracleRenderedItem(BaseModel):
+    """One Final Order rendered into the rating stem the panel will actually see."""
+
+    final_order_id: int | None = None
+    order_text: str | None = None
+    provenance: str | None = None
+    oracle_item: str | None = None
+    learner_item: str | None = None
+
+
+class OraclePreflightResponse(BaseModel):
+    """`GET /sim-ready/case/{id}/oracle/preflight` — everything checkable before spending
+    a model call.
+
+    `ready: false` with reason `diagnosis_leak` is overridable with a recorded reason;
+    `content_drift` and `render_detached` are not, because the panel would be rating a
+    case the learner will not see (ADR-017).
+    """
+
+    case_id: int | None = None
+    case_version_id: int | None = None
+    ready: bool = False
+    reason: str | None = None
+    message: str | None = None
+    estimated_calls: int = 0
+    content_parity: dict[str, Any] | None = None
+    leak_audit: dict[str, Any] | None = None
+    blinded_context: str | None = None
+    blinded_context_hash: str | None = None
+    included_sections: list[str] = Field(default_factory=list)
+    excluded_sections: list[str] = Field(default_factory=list)
+    suppressed_tests: list[str] = Field(default_factory=list)
+    primary_diagnosis_withheld: bool = False
+    stem_version: str | None = None
+    stem_label: str | None = None
+    panel_roster_version: str | None = None
+    roster_specialty: str | None = None
+    roster: list[dict[str, Any]] = Field(default_factory=list)
+    settings: dict[str, Any] | None = None
+    items: list[OracleRenderedItem] = Field(default_factory=list)
+
+
+class OracleItemResult(BaseModel):
+    """One Final Order and its current panel run, if any."""
+
+    final_order: dict[str, Any]
+    run: dict[str, Any] | None = None
+    # Recomputed from the stored per-rating rows on read, so the scoring rule can change
+    # without regenerating data (ADR-006).
+    aggregate: dict[str, Any] | None = None
+    # True when the run predates the current version's content hash (ADR-003).
+    stale: bool = False
+
+
+class OracleResultsResponse(BaseModel):
+    """`GET /sim-ready/case/{id}/oracle` — distributions and item-quality flags."""
+
+    case_id: int | None = None
+    case_version_id: int | None = None
+    primary_diagnosis: str | None = None
+    items: list[OracleItemResult] = Field(default_factory=list)
+
+
 class AuthCheckResponse(BaseModel):
     """Result of validating a credential, for the SPA's login form (ADR-021)."""
 

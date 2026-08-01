@@ -30,6 +30,10 @@ from backend.models.database import (
 from backend.models.editing_schemas import (
     AdoptCaseRequest,
     AuthCheckResponse,
+    FinalOrdersResponse,
+    OraclePreflightResponse,
+    OracleResultsResponse,
+    ProposedFinalOrdersResponse,
     FinalizeCaseResponse,
     FinalOrdersUpdateResponse,
     CaseEditRequest,
@@ -1953,7 +1957,7 @@ def _resolve_case_version(sim_db: Session, case_id: int):
     return version
 
 
-@app.post("/final-orders/propose")
+@app.post("/final-orders/propose", response_model=ProposedFinalOrdersResponse)
 async def propose_final_orders(
     request: ProposeFinalOrdersRequest, username: str = Depends(verify_credentials)
 ):
@@ -2128,7 +2132,10 @@ async def get_oracle_roster(specialty: str | None = None):
     }
 
 
-@app.get("/sim-ready/case/{case_id}/final-orders")
+@app.get(
+    "/sim-ready/case/{case_id}/final-orders",
+    response_model=FinalOrdersResponse,
+)
 async def get_case_final_orders(case_id: int):
     """Final Orders for a case, resolved through its latest version.
 
@@ -2469,7 +2476,10 @@ async def resync_case_structured(
         sim_db.close()
 
 
-@app.get("/sim-ready/case/{case_id}/oracle/preflight")
+@app.get(
+    "/sim-ready/case/{case_id}/oracle/preflight",
+    response_model=OraclePreflightResponse,
+)
 async def oracle_preflight(case_id: int, username: str = Depends(verify_credentials)):
     """Everything checkable before spending a model call.
 
@@ -2558,7 +2568,10 @@ async def run_oracle(
     }
 
 
-@app.get("/sim-ready/case/{case_id}/oracle")
+@app.get(
+    "/sim-ready/case/{case_id}/oracle",
+    response_model=OracleResultsResponse,
+)
 async def get_case_oracle(case_id: int, _: str = Depends(verify_credentials)):
     """Current Oracle distributions and item-quality flags for a case.
 

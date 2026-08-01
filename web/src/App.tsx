@@ -3,6 +3,7 @@ import CaseListPage from './pages/CaseListPage'
 import CaseViewPage from './pages/CaseViewPage'
 import CaseEditPage from './pages/CaseEditPage'
 import NewCasePage from './pages/NewCasePage'
+import FinalOrdersPage from './pages/FinalOrdersPage'
 import BuildFooter from './components/BuildFooter'
 import LoginGate from './components/LoginGate'
 import RequireAuth from './components/RequireAuth'
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/cases/new" element={<RequireAuth><NewCasePage /></RequireAuth>} />
           <Route path="/cases/:caseId" element={<RequireAuth><CaseViewPage /></RequireAuth>} />
           <Route path="/cases/:caseId/edit" element={<RequireAuth><CaseEditPage /></RequireAuth>} />
+          <Route path="/cases/:caseId/orders" element={<RequireAuth><FinalOrdersPage /></RequireAuth>} />
           <Route path="*" element={<p className="text-ink-500">Not found.</p>} />
         </Routes>
       </main>

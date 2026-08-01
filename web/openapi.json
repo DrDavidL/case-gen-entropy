@@ -905,6 +905,56 @@
         "title": "FinalOrderInput",
         "type": "object"
       },
+      "FinalOrdersResponse": {
+        "description": "`GET /sim-ready/case/{id}/final-orders`.\n\nUnauthenticated, and stays that way: this is the shape the simulator reads\n(direct-sim/FINAL_ORDERS_TODO.md). A case with no authoring record returns an empty\nlist rather than 404 \u2014 the simulator must treat that as \"behave exactly as before\".",
+        "properties": {
+          "case_id": {
+            "title": "Case Id",
+            "type": "integer"
+          },
+          "case_version_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Version Id"
+          },
+          "final_orders": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Final Orders",
+            "type": "array"
+          },
+          "oracle_specialty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oracle Specialty"
+          },
+          "suppression_terms": {
+            "items": {
+              "$ref": "#/components/schemas/SuppressionTermGroup"
+            },
+            "title": "Suppression Terms",
+            "type": "array"
+          }
+        },
+        "required": [
+          "case_id"
+        ],
+        "title": "FinalOrdersResponse",
+        "type": "object"
+      },
       "FinalOrdersUpdateRequest": {
         "description": "Replace the Final Orders on a case version.\n\nReplace rather than patch: the submitted list is the author's authoritative statement\nof what the case has, so a deleted order actually disappears.",
         "properties": {
@@ -1172,6 +1222,356 @@
         "title": "OracleItemPreviewRequest",
         "type": "object"
       },
+      "OracleItemResult": {
+        "description": "One Final Order and its current panel run, if any.",
+        "properties": {
+          "aggregate": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aggregate"
+          },
+          "final_order": {
+            "title": "Final Order",
+            "type": "object"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run"
+          },
+          "stale": {
+            "default": false,
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "final_order"
+        ],
+        "title": "OracleItemResult",
+        "type": "object"
+      },
+      "OraclePreflightResponse": {
+        "description": "`GET /sim-ready/case/{id}/oracle/preflight` \u2014 everything checkable before spending\na model call.\n\n`ready: false` with reason `diagnosis_leak` is overridable with a recorded reason;\n`content_drift` and `render_detached` are not, because the panel would be rating a\ncase the learner will not see (ADR-017).",
+        "properties": {
+          "blinded_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blinded Context"
+          },
+          "blinded_context_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blinded Context Hash"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "case_version_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Version Id"
+          },
+          "content_parity": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Parity"
+          },
+          "estimated_calls": {
+            "default": 0,
+            "title": "Estimated Calls",
+            "type": "integer"
+          },
+          "excluded_sections": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Excluded Sections",
+            "type": "array"
+          },
+          "included_sections": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Included Sections",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OracleRenderedItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "leak_audit": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leak Audit"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "panel_roster_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Panel Roster Version"
+          },
+          "primary_diagnosis_withheld": {
+            "default": false,
+            "title": "Primary Diagnosis Withheld",
+            "type": "boolean"
+          },
+          "ready": {
+            "default": false,
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "roster": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Roster",
+            "type": "array"
+          },
+          "roster_specialty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Specialty"
+          },
+          "settings": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settings"
+          },
+          "stem_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stem Label"
+          },
+          "stem_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stem Version"
+          },
+          "suppressed_tests": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Suppressed Tests",
+            "type": "array"
+          }
+        },
+        "title": "OraclePreflightResponse",
+        "type": "object"
+      },
+      "OracleRenderedItem": {
+        "description": "One Final Order rendered into the rating stem the panel will actually see.",
+        "properties": {
+          "final_order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Order Id"
+          },
+          "learner_item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learner Item"
+          },
+          "oracle_item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oracle Item"
+          },
+          "order_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Text"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance"
+          }
+        },
+        "title": "OracleRenderedItem",
+        "type": "object"
+      },
+      "OracleResultsResponse": {
+        "description": "`GET /sim-ready/case/{id}/oracle` \u2014 distributions and item-quality flags.",
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "case_version_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Version Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OracleItemResult"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "primary_diagnosis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Diagnosis"
+          }
+        },
+        "title": "OracleResultsResponse",
+        "type": "object"
+      },
       "OracleRunRequest": {
         "description": "Optional body for starting an Oracle panel.\n\n`leak_override_reason` is the only way past a failing diagnosis-leak audit, and it is\nstored on every run it produces. The audit stays blocking by default; this makes the\nexception visible in the data instead of tempting anyone to weaken the check.",
         "properties": {
@@ -1319,6 +1719,20 @@
           }
         },
         "title": "ProposeFinalOrdersRequest",
+        "type": "object"
+      },
+      "ProposedFinalOrdersResponse": {
+        "description": "`POST /final-orders/propose` \u2014 candidates only. Writes nothing.\n\nThe author accepts explicitly; provenance records which orders came from the model\nso a self-fulfilling distribution stays testable (ADR-004).",
+        "properties": {
+          "candidates": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Candidates",
+            "type": "array"
+          }
+        },
+        "title": "ProposedFinalOrdersResponse",
         "type": "object"
       },
       "RegenerateLRRequest": {
@@ -2125,6 +2539,38 @@
         "title": "StructuredRecordResponse",
         "type": "object"
       },
+      "SuppressionTermGroup": {
+        "description": "Everything the simulator should treat as one Final Order.",
+        "properties": {
+          "final_order_id": {
+            "title": "Final Order Id",
+            "type": "integer"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "terms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Terms",
+            "type": "array"
+          }
+        },
+        "required": [
+          "final_order_id"
+        ],
+        "title": "SuppressionTermGroup",
+        "type": "object"
+      },
       "TeachingPoints": {
         "properties": {
           "educational_content": {
@@ -2684,7 +3130,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProposedFinalOrdersResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -3325,7 +3773,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/FinalOrdersResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -3416,7 +3866,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/OracleResultsResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -3459,7 +3911,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/OraclePreflightResponse"
+                }
               }
             },
             "description": "Successful Response"

@@ -89,12 +89,14 @@ export default function CaseViewPage() {
         </h2>
         <div className="flex items-center gap-3">
           {record && (
-            <Link
-              to={`/cases/${id}/edit`}
-              className="rounded border border-ink-300 px-2 py-1 text-xs text-ink-700 hover:bg-ink-50"
-            >
-              Edit fields
-            </Link>
+            <>
+              <Link to={`/cases/${id}/edit`} className="btn btn-secondary btn-sm">
+                Edit fields
+              </Link>
+              <Link to={`/cases/${id}/orders`} className="btn btn-secondary btn-sm">
+                Final Orders &amp; Oracle
+              </Link>
+            </>
           )}
           <span className="text-xs tabular-nums text-ink-400">#{id}</span>
         </div>

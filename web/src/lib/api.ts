@@ -234,3 +234,72 @@ export type SimReadyPreview = Extract<CasePreview, { rendered_content: string }>
 export function isSimReadyPreview(p: CasePreview): p is SimReadyPreview {
   return 'rendered_content' in p;
 }
+
+// --- Final Orders and the Oracle (Phase 4d) ---------------------------------
+
+export type FinalOrders = Ok<paths['/sim-ready/case/{case_id}/final-orders']['get']>;
+export type FinalOrdersUpdate = Ok<paths['/sim-ready/case/{case_id}/final-orders']['put']>;
+export type OraclePreflight = Ok<
+  paths['/sim-ready/case/{case_id}/oracle/preflight']['get']
+>;
+export type OracleResults = Ok<paths['/sim-ready/case/{case_id}/oracle']['get']>;
+export type ProposedOrders = Ok<paths['/final-orders/propose']['post']>;
+
+/** Unauthenticated — this is the shape the simulator reads. */
+export const getFinalOrders = (caseId: number) =>
+  request<FinalOrders>(`/sim-ready/case/${caseId}/final-orders`);
+
+/**
+ * Replace the case's Final Orders.
+ *
+ * Replace semantics: the submitted list is the authoritative statement of what the case
+ * has. Rows are reconciled by order text server-side, so editing or reordering keeps
+ * existing panel runs attached — but **removing a rated order detaches its runs**, which
+ * comes back in `detached_panel_runs` and must be surfaced, not swallowed.
+ */
+export const putFinalOrders = (
+  caseId: number,
+  body: { final_orders: unknown[]; oracle_specialty?: string | null; run_oracle?: boolean },
+) =>
+  request<FinalOrdersUpdate>(`/sim-ready/case/${caseId}/final-orders`, {
+    method: 'PUT',
+    auth: true,
+    body: JSON.stringify(body),
+  });
+
+/**
+ * Candidate orders from the generator. Writes nothing; the author accepts explicitly.
+ *
+ * Takes the case record rather than a case id: the endpoint wants `session_id` OR
+ * `case_details` + `primary_diagnosis`, and a saved case has no live session. It derives
+ * candidates from `diagnostic_workup`.
+ */
+export const proposeFinalOrders = (
+  caseDetails: unknown,
+  primaryDiagnosis: string,
+) =>
+  request<ProposedOrders>('/final-orders/propose', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({
+      case_details: caseDetails,
+      primary_diagnosis: primaryDiagnosis,
+    }),
+  });
+
+/** Everything checkable before spending a model call. Costs nothing. */
+export const getOraclePreflight = (caseId: number) =>
+  request<OraclePreflight>(`/sim-ready/case/${caseId}/oracle/preflight`, { auth: true });
+
+/** Queue the panel. 15 calls per Final Order; poll `getOracle` for the result. */
+export const runOracle = (caseId: number, leakOverrideReason?: string) =>
+  request<unknown>(`/sim-ready/case/${caseId}/oracle/run`, {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify(
+      leakOverrideReason ? { leak_override_reason: leakOverrideReason } : {},
+    ),
+  });
+
+export const getOracle = (caseId: number) =>
+  request<OracleResults>(`/sim-ready/case/${caseId}/oracle`, { auth: true });
