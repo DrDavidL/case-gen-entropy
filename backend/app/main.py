@@ -3,12 +3,13 @@ import logging
 import os
 import time
 import uuid
+from pathlib import Path
 
 import redis
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -2520,6 +2521,53 @@ async def get_case_oracle(case_id: int):
         return {"case_id": case_id, **result}
     finally:
         sim_db.close()
+
+
+# ---------------------------------------------------------------------------
+# Serve the React SPA (ADR-020). Registered last, and namespaced under /app.
+#
+# NOT mounted at "/". `GET /` returns the build stamp, and that endpoint is how every
+# deploy is verified — ADR-012 exists because a mutable image tag let a four-month-old
+# image serve behind green deploys for four months, and the build stamp is the check that
+# would have caught it. Shadowing it with index.html to save a path segment would remove
+# the only signal that says whether a deploy actually rolled.
+#
+# The /app prefix also means this cannot shadow an API route, so adding it carries no risk
+# to anything the Streamlit UI or the simulator already calls. Streamlit stays live and
+# untouched on its own container app; the two UIs coexist until Phase 4e retires it.
+# ---------------------------------------------------------------------------
+
+_WEB_DIST = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
+
+
+@app.get("/app", include_in_schema=False)
+@app.get("/app/{full_path:path}", include_in_schema=False)
+async def serve_spa(full_path: str = ""):
+    """Serve the built SPA, falling back to index.html for client-side routes."""
+    index = _WEB_DIST / "index.html"
+
+    if full_path:
+        candidate = (_WEB_DIST / full_path).resolve()
+        # Containment check before touching the filesystem. Without it, a request for
+        # `/app/../../etc/passwd` resolves outside the dist directory and FileResponse
+        # would happily serve it. `is_relative_to` is the whole guard.
+        if candidate.is_relative_to(_WEB_DIST.resolve()) and candidate.is_file():
+            return FileResponse(candidate)
+
+    if index.is_file():
+        # Any unmatched path returns the SPA shell so react-router can handle it. A 200
+        # here is correct for a client-side route and wrong for a genuinely missing
+        # asset, which is why the file check above runs first.
+        return FileResponse(index)
+
+    # The image was built without the SPA. Say so plainly rather than 404 -- a bare 404
+    # reads as "wrong URL" when the actual cause is a build that skipped the node stage.
+    raise HTTPException(
+        status_code=503,
+        detail="The web UI is not present in this image. It is built by the node stage "
+        "in Dockerfile.backend; a backend started from source needs `cd web && npm run "
+        "build` first, or use the Vite dev server on :5174.",
+    )
 
 
 if __name__ == "__main__":
