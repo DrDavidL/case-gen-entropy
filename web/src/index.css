@@ -1,1 +1,209 @@
 @import "tailwindcss";
+
+/*
+ * Design tokens and component classes.
+ *
+ * Tailwind 4 takes its theme from CSS custom properties in `@theme`, so these become
+ * real utilities (`bg-brand-600`, `text-ink-500`) rather than arbitrary values.
+ *
+ * The palette is deliberately restrained. This is a clinical authoring tool used for
+ * long editing sessions, so it leans on one accent against warm-neutral greys and
+ * reserves saturated colour for state that matters: amber for a parity divergence, red
+ * for a destructive save. If everything is coloured, the warning that should stop an
+ * author reads as decoration.
+ */
+
+@theme {
+  /* Neutrals — slightly warm, easier than pure grey over a long session. */
+  --color-ink-50: #f8f9fa;
+  --color-ink-100: #f1f3f5;
+  --color-ink-200: #e6e9ec;
+  --color-ink-300: #d3d8dd;
+  --color-ink-400: #a4adb6;
+  --color-ink-500: #71797f;
+  --color-ink-600: #4d5459;
+  --color-ink-700: #363b3f;
+  --color-ink-800: #24282b;
+  --color-ink-900: #16191b;
+
+  /* Accent — teal reads as clinical without the "unsaved changes" alarm of blue. */
+  --color-brand-50: #eefbf8;
+  --color-brand-100: #d3f4ee;
+  --color-brand-200: #a9e8de;
+  --color-brand-300: #71d5c8;
+  --color-brand-400: #3bbcae;
+  --color-brand-500: #1f9f93;
+  --color-brand-600: #157f78;
+  --color-brand-700: #146661;
+  --color-brand-800: #14524f;
+  --color-brand-900: #144542;
+
+  --radius-card: 0.625rem;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-ink-100);
+    color: var(--color-ink-800);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* One visible focus ring everywhere. Keyboard navigation through a 49-field form is
+     unusable without it, and the browser default disappears against these panels. */
+  :where(a, button, input, textarea, select, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  /* --- Buttons -------------------------------------------------------------
+     Three levels, because there are exactly three kinds of action here: the one
+     the screen is for, everything else, and the one that destroys work. */
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    border-radius: 0.5rem;
+    padding: 0.45rem 0.85rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease;
+    white-space: nowrap;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background-color: var(--color-brand-600);
+    color: white;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--color-brand-700);
+  }
+
+  .btn-secondary {
+    background-color: white;
+    color: var(--color-ink-700);
+    border-color: var(--color-ink-300);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: var(--color-ink-50);
+    border-color: var(--color-ink-400);
+  }
+
+  .btn-danger {
+    background-color: #b42318;
+    color: white;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background-color: #912018;
+  }
+
+  .btn-ghost {
+    background-color: transparent;
+    color: var(--color-ink-600);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background-color: var(--color-ink-200);
+    color: var(--color-ink-800);
+  }
+
+  .btn-sm {
+    padding: 0.25rem 0.55rem;
+    font-size: 0.78rem;
+  }
+
+  /* --- Surfaces ----------------------------------------------------------- */
+
+  .card {
+    background-color: white;
+    border: 1px solid var(--color-ink-200);
+    border-radius: var(--radius-card);
+  }
+
+  .input {
+    width: 100%;
+    border-radius: 0.4rem;
+    border: 1px solid var(--color-ink-300);
+    background-color: white;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.875rem;
+    color: var(--color-ink-800);
+  }
+  .input::placeholder {
+    color: var(--color-ink-400);
+  }
+  .input:hover:not(:focus) {
+    border-color: var(--color-ink-400);
+  }
+
+  .label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-ink-600);
+    margin-bottom: 0.25rem;
+  }
+
+  /* --- Status ------------------------------------------------------------- */
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border-radius: 999px;
+    padding: 0.1rem 0.55rem;
+    font-size: 0.72rem;
+    font-weight: 500;
+    border: 1px solid transparent;
+  }
+  .chip-neutral {
+    background-color: var(--color-ink-100);
+    color: var(--color-ink-600);
+    border-color: var(--color-ink-200);
+  }
+  .chip-good {
+    background-color: var(--color-brand-50);
+    color: var(--color-brand-700);
+    border-color: var(--color-brand-200);
+  }
+  .chip-warn {
+    background-color: #fef6e7;
+    color: #92610a;
+    border-color: #f6dfae;
+  }
+
+  .notice {
+    border-radius: var(--radius-card);
+    border: 1px solid;
+    padding: 0.75rem 0.9rem;
+    font-size: 0.875rem;
+  }
+  .notice-warn {
+    background-color: #fffaf0;
+    border-color: #f6dfae;
+    color: #7a4f05;
+  }
+  .notice-error {
+    background-color: #fef3f2;
+    border-color: #fcc9c4;
+    color: #912018;
+  }
+  .notice-good {
+    background-color: var(--color-brand-50);
+    border-color: var(--color-brand-200);
+    color: var(--color-brand-800);
+  }
+}

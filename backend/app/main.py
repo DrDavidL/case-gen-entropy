@@ -30,6 +30,7 @@ from backend.models.database import (
 from backend.models.editing_schemas import (
     AdoptCaseRequest,
     AuthCheckResponse,
+    FinalizeCaseResponse,
     FinalOrdersUpdateResponse,
     CaseEditRequest,
     CasePreviewResponse,
@@ -189,7 +190,10 @@ async def root():
     }
 
 
-@app.post("/preview-case")
+@app.post(
+    "/preview-case",
+    response_model=SimReadyCasePreviewResponse | CasePreviewResponse,
+)
 async def preview_case(
     case_input: CaseInput, username: str = Depends(verify_credentials)
 ):
@@ -494,7 +498,14 @@ async def get_session_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/finalize-case")
+# Union, richest first. The beta branch returns `CaseResponse`, which has no
+# `saved_name`, so a bare `FinalizeCaseResponse` would fail response validation and turn
+# a working beta save into a 500. Streamlit hardcodes sim_ready today, but beta is still
+# a supported path until ADR-001 finishes retiring it.
+@app.post(
+    "/finalize-case",
+    response_model=FinalizeCaseResponse | CaseResponse,
+)
 async def finalize_case(
     save_request: CaseSaveRequest,
     background_tasks: BackgroundTasks,

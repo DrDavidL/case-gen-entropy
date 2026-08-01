@@ -24,6 +24,26 @@ class SimReadyCasePreviewResponse(CasePreviewResponse):
     default_learner_tasks: str = Field(description="Default learner tasks markdown")
 
 
+class FinalizeCaseResponse(BaseModel):
+    """`POST /finalize-case`, sim-ready branch.
+
+    Declared so the SPA's generate flow can read `case_id` off the response and send the
+    author straight to the new case. Without a `response_model` the schema documents this
+    as an empty object and the generated client cannot see any field on it — the same gap
+    that made all four original SPA endpoints emit `{}` (ToDos failure 3).
+
+    The beta branch of this endpoint returns a different shape. It is not typed here
+    because no client the SPA owns calls it, and `ADR-001` is retiring that path.
+    """
+
+    case_id: int
+    saved_name: str
+    output_format: str = "sim_ready"
+    case_version_id: int | None = None
+    final_orders_saved: int = 0
+    oracle_started: bool = False
+
+
 class EditableCaseDetails(BaseModel):
     presentation: str
     patient_personality: str

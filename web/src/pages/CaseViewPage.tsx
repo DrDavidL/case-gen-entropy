@@ -61,7 +61,7 @@ export default function CaseViewPage() {
       </div>
     );
   }
-  if (loading) return <p className="text-sm text-slate-500">Loading case…</p>;
+  if (loading) return <p className="text-sm text-ink-500">Loading case…</p>;
   if (error) {
     return (
       <div className="space-y-4">
@@ -85,18 +85,18 @@ export default function CaseViewPage() {
 
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h2 className="text-base font-medium">
-          {simCase?.saved_name?.trim() || <em className="text-slate-400">Untitled</em>}
+          {simCase?.saved_name?.trim() || <em className="text-ink-400">Untitled</em>}
         </h2>
         <div className="flex items-center gap-3">
           {record && (
             <Link
               to={`/cases/${id}/edit`}
-              className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+              className="rounded border border-ink-300 px-2 py-1 text-xs text-ink-700 hover:bg-ink-50"
             >
               Edit fields
             </Link>
           )}
-          <span className="text-xs tabular-nums text-slate-400">#{id}</span>
+          <span className="text-xs tabular-nums text-ink-400">#{id}</span>
         </div>
       </div>
 
@@ -133,17 +133,17 @@ export default function CaseViewPage() {
         </div>
       )}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-5">
-        <h3 className="mb-3 text-sm font-medium text-slate-500">Case content</h3>
+      <section className="rounded-lg border border-ink-200 bg-white p-5">
+        <h3 className="mb-3 text-sm font-medium text-ink-500">Case content</h3>
         {content ? (
           <div
             className="prose prose-sm max-w-none prose-headings:font-semibold
-                       prose-headings:text-slate-800"
+                       prose-headings:text-ink-800"
           >
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
         ) : (
-          <p className="text-sm text-slate-500">This case has no content.</p>
+          <p className="text-sm text-ink-500">This case has no content.</p>
         )}
       </section>
     </div>
@@ -152,7 +152,7 @@ export default function CaseViewPage() {
 
 function Back() {
   return (
-    <Link to="/cases" className="text-sm text-slate-500 hover:text-slate-800">
+    <Link to="/cases" className="text-sm text-ink-500 hover:text-ink-800">
       ← All cases
     </Link>
   );
@@ -162,7 +162,7 @@ function Chip({ label, tone }: { label: string; tone: 'ok' | 'warn' | 'neutral' 
   const tones = {
     ok: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     warn: 'border-amber-200 bg-amber-50 text-amber-900',
-    neutral: 'border-slate-200 bg-slate-50 text-slate-600',
+    neutral: 'border-ink-200 bg-ink-50 text-ink-600',
   };
   return (
     <span className={`rounded-full border px-2.5 py-1 ${tones[tone]}`}>{label}</span>

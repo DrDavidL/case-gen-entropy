@@ -47,13 +47,13 @@ export default function LoginGate() {
   if (username) {
     return (
       <div className="flex items-center gap-3 text-sm">
-        <span className="text-slate-600">
+        <span className="text-ink-600">
           Signed in as <span className="font-medium">{username}</span>
         </span>
         <button
           type="button"
           onClick={clearCredential}
-          className="rounded border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-100"
+          className="btn btn-secondary btn-sm"
         >
           Sign out
         </button>
@@ -69,7 +69,7 @@ export default function LoginGate() {
         value={user}
         onChange={(e) => setUser(e.target.value)}
         autoComplete="username"
-        className="w-28 rounded border border-slate-300 px-2 py-1"
+        className="input w-28"
       />
       <input
         aria-label="Password"
@@ -78,16 +78,16 @@ export default function LoginGate() {
         value={pass}
         onChange={(e) => setPass(e.target.value)}
         autoComplete="current-password"
-        className="w-32 rounded border border-slate-300 px-2 py-1"
+        className="input w-32"
       />
       <button
         type="submit"
         disabled={busy || !user || !pass}
-        className="rounded bg-slate-800 px-3 py-1 text-white disabled:opacity-40"
+        className="btn btn-primary btn-sm"
       >
         {busy ? 'Checking…' : 'Sign in'}
       </button>
-      {error && <span className="text-red-600">{error}</span>}
+      {error && <span className="text-red-700">{error}</span>}
     </form>
   );
 }

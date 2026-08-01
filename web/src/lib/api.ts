@@ -185,3 +185,50 @@ export const saveStructured = (
     auth: true,
     body: JSON.stringify(body),
   });
+
+// --- Case generation (Phase 4d) ---------------------------------------------
+
+type Body<T> = T extends { requestBody: { content: { 'application/json': infer B } } }
+  ? B
+  : never;
+
+export type CaseInput = Body<paths['/preview-case']['post']>;
+export type CasePreview = Ok<paths['/preview-case']['post']>;
+export type FinalizeResult = Ok<paths['/finalize-case']['post']>;
+export type CaseSaveBody = Body<paths['/finalize-case']['post']>;
+
+/**
+ * Generate a case for review. Writes nothing to the database.
+ *
+ * Three sequential LLM calls (details -> framework -> likelihood ratios), so this takes
+ * roughly a minute. The result lives in a Redis session with a 1-hour TTL and is only
+ * persisted by `finalizeCase`.
+ */
+export const previewCase = (input: CaseInput) =>
+  request<CasePreview>('/preview-case', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify(input),
+  });
+
+/** Persist a previewed case. Returns the new `case_id`. */
+export const finalizeCase = (body: CaseSaveBody) =>
+  request<FinalizeResult>('/finalize-case', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify(body),
+  });
+
+/**
+ * The sim-ready shape of a preview.
+ *
+ * `/preview-case` is typed as a union because the endpoint still serves the beta format,
+ * whose response lacks `rendered_content` and the simulator defaults. Narrowing rather
+ * than casting means that if the beta branch is ever removed — or its shape changes —
+ * this stops compiling instead of reading `undefined` at runtime.
+ */
+export type SimReadyPreview = Extract<CasePreview, { rendered_content: string }>;
+
+export function isSimReadyPreview(p: CasePreview): p is SimReadyPreview {
+  return 'rendered_content' in p;
+}

@@ -45,23 +45,23 @@ export function ListEditor({
   };
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4">
+    <section className="card p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-800">
+        <h3 className="text-sm font-semibold text-ink-800">
           {title}{' '}
-          <span className="font-normal text-slate-400">({rows.length})</span>
+          <span className="font-normal text-ink-400">({rows.length})</span>
         </h3>
         <button
           type="button"
           onClick={() => onChange([...rows, { rid: newId(), a: '', b: '' }])}
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+          className="btn btn-secondary btn-sm"
         >
           Add row
         </button>
       </div>
 
       {rows.length === 0 && (
-        <p className="text-xs text-slate-400">None yet.</p>
+        <p className="text-xs text-ink-400">None yet.</p>
       )}
 
       <div className="space-y-3">
@@ -70,7 +70,7 @@ export function ListEditor({
           // avoid -- see the module comment.
           <div
             key={row.rid}
-            className="grid gap-2 rounded border border-slate-100 bg-slate-50/60 p-2 sm:grid-cols-[1fr_1fr_auto]"
+            className="grid gap-2 rounded border border-ink-100 bg-ink-50/60 p-2 sm:grid-cols-[1fr_1fr_auto]"
           >
             <Field
               label={labelA}
@@ -92,7 +92,7 @@ export function ListEditor({
                 aria-label={`Move ${labelA} row ${i + 1} up`}
                 disabled={i === 0}
                 onClick={() => move(row.rid, -1)}
-                className="rounded border border-slate-300 px-2 text-xs text-slate-600 disabled:opacity-30"
+                className="btn btn-ghost btn-sm"
               >
                 ↑
               </button>
@@ -101,7 +101,7 @@ export function ListEditor({
                 aria-label={`Move ${labelA} row ${i + 1} down`}
                 disabled={i === rows.length - 1}
                 onClick={() => move(row.rid, 1)}
-                className="rounded border border-slate-300 px-2 text-xs text-slate-600 disabled:opacity-30"
+                className="btn btn-ghost btn-sm"
               >
                 ↓
               </button>
@@ -109,7 +109,7 @@ export function ListEditor({
                 type="button"
                 aria-label={`Remove ${labelA} row ${i + 1}`}
                 onClick={() => remove(row.rid)}
-                className="rounded border border-red-200 px-2 text-xs text-red-600 hover:bg-red-50"
+                className="btn btn-ghost btn-sm text-red-700 hover:bg-red-50"
               >
                 ✕
               </button>

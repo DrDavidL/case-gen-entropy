@@ -307,6 +307,41 @@
         "title": "CaseOutputFiles",
         "type": "object"
       },
+      "CasePreviewResponse": {
+        "properties": {
+          "case_details": {
+            "title": "Case Details",
+            "type": "object"
+          },
+          "diagnostic_framework": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Diagnostic Framework",
+            "type": "array"
+          },
+          "feature_likelihood_ratios": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Feature Likelihood Ratios",
+            "type": "array"
+          },
+          "session_id": {
+            "description": "Temporary session ID for editing",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "case_details",
+          "diagnostic_framework",
+          "feature_likelihood_ratios"
+        ],
+        "title": "CasePreviewResponse",
+        "type": "object"
+      },
       "CaseResponse": {
         "properties": {
           "case_details": {
@@ -950,6 +985,51 @@
         "title": "FinalOrdersUpdateResponse",
         "type": "object"
       },
+      "FinalizeCaseResponse": {
+        "description": "`POST /finalize-case`, sim-ready branch.\n\nDeclared so the SPA's generate flow can read `case_id` off the response and send the\nauthor straight to the new case. Without a `response_model` the schema documents this\nas an empty object and the generated client cannot see any field on it \u2014 the same gap\nthat made all four original SPA endpoints emit `{}` (ToDos failure 3).\n\nThe beta branch of this endpoint returns a different shape. It is not typed here\nbecause no client the SPA owns calls it, and `ADR-001` is retiring that path.",
+        "properties": {
+          "case_id": {
+            "title": "Case Id",
+            "type": "integer"
+          },
+          "case_version_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Version Id"
+          },
+          "final_orders_saved": {
+            "default": 0,
+            "title": "Final Orders Saved",
+            "type": "integer"
+          },
+          "oracle_started": {
+            "default": false,
+            "title": "Oracle Started",
+            "type": "boolean"
+          },
+          "output_format": {
+            "default": "sim_ready",
+            "title": "Output Format",
+            "type": "string"
+          },
+          "saved_name": {
+            "title": "Saved Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id",
+          "saved_name"
+        ],
+        "title": "FinalizeCaseResponse",
+        "type": "object"
+      },
       "HPIDetails": {
         "properties": {
           "additional_details": {
@@ -1583,6 +1663,65 @@
           "diagnostic_workup"
         ],
         "title": "SimReadyCaseDetailsStructured",
+        "type": "object"
+      },
+      "SimReadyCasePreviewResponse": {
+        "properties": {
+          "case_details": {
+            "title": "Case Details",
+            "type": "object"
+          },
+          "default_custom_evaluation": {
+            "description": "Default custom_evaluation JSON",
+            "title": "Default Custom Evaluation",
+            "type": "object"
+          },
+          "default_custom_input": {
+            "description": "Default custom_input JSON",
+            "title": "Default Custom Input",
+            "type": "object"
+          },
+          "default_learner_tasks": {
+            "description": "Default learner tasks markdown",
+            "title": "Default Learner Tasks",
+            "type": "string"
+          },
+          "diagnostic_framework": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Diagnostic Framework",
+            "type": "array"
+          },
+          "feature_likelihood_ratios": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Feature Likelihood Ratios",
+            "type": "array"
+          },
+          "rendered_content": {
+            "description": "Rendered markdown content for preview",
+            "title": "Rendered Content",
+            "type": "string"
+          },
+          "session_id": {
+            "description": "Temporary session ID for editing",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "case_details",
+          "diagnostic_framework",
+          "feature_likelihood_ratios",
+          "rendered_content",
+          "default_custom_input",
+          "default_custom_evaluation",
+          "default_learner_tasks"
+        ],
+        "title": "SimReadyCasePreviewResponse",
         "type": "object"
       },
       "SimReadyCaseUpdateRequest": {
@@ -2547,7 +2686,17 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/FinalizeCaseResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CaseResponse"
+                    }
+                  ],
+                  "title": "Response Finalize Case Finalize Case Post"
+                }
               }
             },
             "description": "Successful Response"
@@ -2749,7 +2898,17 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SimReadyCasePreviewResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CasePreviewResponse"
+                    }
+                  ],
+                  "title": "Response Preview Case Preview Case Post"
+                }
               }
             },
             "description": "Successful Response"

@@ -29,7 +29,7 @@ export function ParityBanner({ state }: { state: ParityState | null }) {
 
   const detached = state.parity_reason === 'render_detached';
   return (
-    <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+    <div className="notice notice-warn">
       <p className="font-medium">
         {detached
           ? 'This version’s markdown was hand-edited and no longer matches the structured record.'
@@ -67,18 +67,18 @@ export function DetachedSaveConfirm({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4">
       <div
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="detached-save-title"
-        className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl"
+        className="card w-full max-w-lg p-5 shadow-xl"
       >
-        <h2 id="detached-save-title" className="text-lg font-semibold text-slate-900">
+        <h2 id="detached-save-title" className="text-lg font-semibold text-ink-900">
           This will discard the hand-edited markdown
         </h2>
 
-        <div className="mt-3 space-y-3 text-sm text-slate-700">
+        <div className="mt-3 space-y-3 text-sm text-ink-700">
           <p>
             Someone edited this case’s markdown directly. Saving these fields re-renders
             the document from the structured record, so{' '}
@@ -97,7 +97,7 @@ export function DetachedSaveConfirm({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            className="btn btn-secondary"
           >
             Cancel
           </button>
@@ -106,7 +106,7 @@ export function DetachedSaveConfirm({
               type="button"
               onClick={onResync}
               disabled={busy}
-              className="rounded border border-slate-400 px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-40"
+              className="btn btn-secondary"
             >
               Re-sync instead (keeps the markdown)
             </button>
@@ -115,7 +115,7 @@ export function DetachedSaveConfirm({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-40"
+            className="btn btn-danger"
           >
             {busy ? 'Saving…' : 'Discard markdown and save'}
           </button>

@@ -163,7 +163,7 @@ export default function CaseEditPage() {
   }, [record, doSave]);
 
   if (!Number.isFinite(id)) return <Msg>&ldquo;{caseId}&rdquo; is not a valid case id.</Msg>;
-  if (loading) return <p className="text-sm text-slate-500">Loading case…</p>;
+  if (loading) return <p className="text-sm text-ink-500">Loading case…</p>;
   if (!record)
     return (
       <div className="space-y-4">
@@ -195,7 +195,7 @@ export default function CaseEditPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Back id={id} />
         <div className="flex items-center gap-3 text-sm">
-          {saved && <span className="text-green-700">{saved}</span>}
+          {saved && <span className="chip chip-good">{saved}</span>}
           {!username && (
             <span className="text-amber-700">Sign in to save.</span>
           )}
@@ -203,7 +203,7 @@ export default function CaseEditPage() {
             type="button"
             onClick={onSaveClick}
             disabled={!username || saving}
-            className="rounded bg-slate-800 px-3 py-1.5 text-white disabled:opacity-40"
+            className="btn btn-primary"
           >
             {saving ? 'Saving…' : 'Save as new version'}
           </button>
@@ -240,10 +240,10 @@ export default function CaseEditPage() {
         </div>
 
         <aside className="lg:sticky lg:top-4 lg:self-start">
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <h3 className="mb-2 text-sm font-semibold text-slate-800">
+          <div className="card p-4">
+            <h3 className="mb-2 text-sm font-semibold text-ink-800">
               Preview
-              <span className="ml-2 font-normal text-slate-400">
+              <span className="ml-2 font-normal text-ink-400">
                 rendered by the server
               </span>
             </h3>
@@ -270,7 +270,7 @@ export default function CaseEditPage() {
 
 function Back({ id }: { id: number }) {
   return (
-    <Link to={`/cases/${id}`} className="text-sm text-slate-500 hover:text-slate-800">
+    <Link to={`/cases/${id}`} className="text-sm text-ink-500 hover:text-ink-800">
       ← Back to case
     </Link>
   );
@@ -278,7 +278,7 @@ function Back({ id }: { id: number }) {
 
 function Msg({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+    <div className="notice notice-warn">
       {children}
     </div>
   );

@@ -29,17 +29,17 @@ export default function BuildFooter() {
   }, []);
 
   return (
-    <footer className="border-t border-slate-200 bg-white">
+    <footer className="border-t border-ink-200 bg-white">
       <div
         className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-1 px-4
-                   py-3 text-xs text-slate-400"
+                   py-3 text-xs text-ink-400"
       >
         {failed ? (
           <span className="text-amber-700">Backend unreachable.</span>
         ) : (
           <>
             <span>
-              backend <code className="text-slate-500">{sha ?? '…'}</code>
+              backend <code className="text-ink-500">{sha ?? '…'}</code>
             </span>
             {builtAt && <span>built {builtAt}</span>}
           </>
