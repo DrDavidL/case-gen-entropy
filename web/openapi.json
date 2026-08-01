@@ -2306,6 +2306,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "Debug Lr Data"
       }
     },
@@ -2345,6 +2350,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "Get Case Output Files"
       }
     },
@@ -2383,6 +2393,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "Export Case Summary"
       }
     },
@@ -2431,6 +2446,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "Export Lr Matrix Csv"
       }
     },
@@ -2479,6 +2499,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "Export Lr Matrix Excel"
       }
     },
@@ -2527,6 +2552,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "Export Prior Probabilities"
       }
     },
@@ -2565,6 +2595,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "Get Simulator Export Info"
       }
     },
@@ -2581,6 +2616,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "List Cases"
       }
     },
@@ -3056,6 +3096,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "Get Sim Ready Case"
       },
       "put": {
@@ -3200,6 +3245,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "Get Sim Ready Case Analysis"
       }
     },
@@ -3382,6 +3432,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "Get Case Oracle"
       }
     },
@@ -3568,6 +3623,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "Get Sim Ready Case Structured"
       },
       "put": {
@@ -3642,6 +3702,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
         "summary": "List Sim Ready Cases"
       }
     },

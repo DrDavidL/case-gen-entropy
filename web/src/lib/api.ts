@@ -6,8 +6,10 @@
  * point of generating is that renaming a field server-side becomes a build error here
  * rather than a form input that silently stops being populated.
  *
- * Reads are unauthenticated by design (`/sim-ready/cases`, `/sim-ready/case/{id}`,
- * `/sim-ready/case/{id}/structured`, `/sim-ready/case/{id}/analysis`, `/`). Writes send
+ * Case reads now require a credential too, so case content is not browsable by anyone
+ * with the URL. `GET /` (the build stamp) and `/sim-ready/case/{id}/final-orders` stay
+ * open deliberately — the first is the deploy health check, the second is the contract
+ * the simulator will read (direct-sim/FINAL_ORDERS_TODO.md). Writes send
  * HTTP Basic from the app's own login form — see `auth.ts` and ADR-021 for why that is
  * Basic rather than the JWT ADR-020 originally specified. HTTP Basic stays live on the
  * backend until Phase 4e regardless, because the Streamlit UI authenticates with it.
@@ -104,10 +106,10 @@ export interface CaseListItem {
 
 export const getBuildInfo = () => request<BuildInfo>('/');
 
-export const listCases = () => request<CaseListItem[]>('/sim-ready/cases');
+export const listCases = () => request<CaseListItem[]>('/sim-ready/cases', { auth: true });
 
 export const getCase = (id: number) =>
-  request<SimReadyCase>(`/sim-ready/case/${id}`);
+  request<SimReadyCase>(`/sim-ready/case/${id}`, { auth: true });
 
 /**
  * The canonical structured record. 404 is expected and not an error condition: cases
@@ -117,7 +119,7 @@ export const getCase = (id: number) =>
  */
 export async function getStructured(id: number): Promise<StructuredRecord | null> {
   try {
-    return await request<StructuredRecord>(`/sim-ready/case/${id}/structured`);
+    return await request<StructuredRecord>(`/sim-ready/case/${id}/structured`, { auth: true });
   } catch (e) {
     if (e instanceof ApiError && (e.status === 404 || e.status === 503)) return null;
     throw e;
@@ -127,7 +129,7 @@ export async function getStructured(id: number): Promise<StructuredRecord | null
 /** Framework + LR data. Null for the same reasons as `getStructured`. */
 export async function getAnalysis(id: number): Promise<CaseAnalysis | null> {
   try {
-    return await request<CaseAnalysis>(`/sim-ready/case/${id}/analysis`);
+    return await request<CaseAnalysis>(`/sim-ready/case/${id}/analysis`, { auth: true });
   } catch (e) {
     if (e instanceof ApiError && (e.status === 404 || e.status === 503)) return null;
     throw e;

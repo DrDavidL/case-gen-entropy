@@ -853,7 +853,9 @@ async def generate_case(
 
 
 @app.get("/case/{case_id}/output-files", response_model=CaseOutputFiles)
-async def get_case_output_files(case_id: int, db: Session = Depends(get_db)):
+async def get_case_output_files(
+    case_id: int, db: Session = Depends(get_db), _: str = Depends(verify_credentials)
+):
     case = db.query(Case).filter(Case.id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -916,7 +918,9 @@ async def get_case_output_files(case_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/cases")
-async def list_cases(db: Session = Depends(get_db)):
+async def list_cases(
+    db: Session = Depends(get_db), _: str = Depends(verify_credentials)
+):
     cases = db.query(Case).all()
     return [
         {
@@ -929,7 +933,9 @@ async def list_cases(db: Session = Depends(get_db)):
 
 
 @app.get("/case/{case_id}/simulator-exports")
-async def get_simulator_export_info(case_id: int, db: Session = Depends(get_db)):
+async def get_simulator_export_info(
+    case_id: int, db: Session = Depends(get_db), _: str = Depends(verify_credentials)
+):
     """Get information about available simulator exports for a case."""
     case = db.query(Case).filter(Case.id == case_id).first()
     if not case:
@@ -964,7 +970,9 @@ async def get_simulator_export_info(case_id: int, db: Session = Depends(get_db))
 
 
 @app.get("/case/{case_id}/debug-lr-data")
-async def debug_lr_data(case_id: int, db: Session = Depends(get_db)):
+async def debug_lr_data(
+    case_id: int, db: Session = Depends(get_db), _: str = Depends(verify_credentials)
+):
     """Debug endpoint to see raw LR data before matrix creation."""
     case = db.query(Case).filter(Case.id == case_id).first()
     if not case:
@@ -1008,7 +1016,10 @@ async def debug_lr_data(case_id: int, db: Session = Depends(get_db)):
 
 @app.get("/case/{case_id}/simulator-export/lr-matrix-csv")
 async def export_lr_matrix_csv(
-    case_id: int, tier_level: int = 2, db: Session = Depends(get_db)
+    case_id: int,
+    tier_level: int = 2,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_credentials),
 ):
     """Export feature likelihood ratio matrix as CSV for simulator app."""
     case = db.query(Case).filter(Case.id == case_id).first()
@@ -1073,7 +1084,10 @@ async def export_lr_matrix_csv(
 
 @app.get("/case/{case_id}/simulator-export/lr-matrix-excel")
 async def export_lr_matrix_excel(
-    case_id: int, tier_level: int = 2, db: Session = Depends(get_db)
+    case_id: int,
+    tier_level: int = 2,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_credentials),
 ):
     """Export feature likelihood ratio matrix as Excel for simulator app."""
     case = db.query(Case).filter(Case.id == case_id).first()
@@ -1138,7 +1152,10 @@ async def export_lr_matrix_excel(
 
 @app.get("/case/{case_id}/simulator-export/prior-probabilities")
 async def export_prior_probabilities(
-    case_id: int, tier_level: int = 2, db: Session = Depends(get_db)
+    case_id: int,
+    tier_level: int = 2,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_credentials),
 ):
     """Export prior probabilities for specific tier as JSON for simulator app."""
     case = db.query(Case).filter(Case.id == case_id).first()
@@ -1186,7 +1203,9 @@ async def export_prior_probabilities(
 
 
 @app.get("/case/{case_id}/simulator-export/case-summary")
-async def export_case_summary(case_id: int, db: Session = Depends(get_db)):
+async def export_case_summary(
+    case_id: int, db: Session = Depends(get_db), _: str = Depends(verify_credentials)
+):
     """Export case summary as text file for simulator app transcript input."""
     case = db.query(Case).filter(Case.id == case_id).first()
     if not case:
@@ -1209,7 +1228,7 @@ async def export_case_summary(case_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/sim-ready/cases", response_model=list[CaseListItemResponse])
-async def list_sim_ready_cases():
+async def list_sim_ready_cases(_: str = Depends(verify_credentials)):
     """List all sim-ready cases from the simulator database."""
     sim_db = next(get_sim_ready_db())
     try:
@@ -1223,7 +1242,9 @@ async def list_sim_ready_cases():
 
 
 @app.get("/sim-ready/case/{case_id}/analysis", response_model=CaseAnalysisResponse)
-async def get_sim_ready_case_analysis(case_id: int):
+async def get_sim_ready_case_analysis(
+    case_id: int, _: str = Depends(verify_credentials)
+):
     """Diagnostic framework + likelihood ratios for a sim-ready case.
 
     Before ADR-001 this data existed only in Streamlit session state and was lost on
@@ -1249,7 +1270,9 @@ async def get_sim_ready_case_analysis(case_id: int):
 @app.get(
     "/sim-ready/case/{case_id}/structured", response_model=StructuredRecordResponse
 )
-async def get_sim_ready_case_structured(case_id: int):
+async def get_sim_ready_case_structured(
+    case_id: int, _: str = Depends(verify_credentials)
+):
     """The canonical structured record for a case's latest version (ADR-002).
 
     ADR-002 makes this record the source of truth and `case_details.content` its
@@ -1499,7 +1522,7 @@ async def update_sim_ready_case_structured(
 
 
 @app.get("/sim-ready/case/{case_id}", response_model=SimReadyCaseDetailResponse)
-async def get_sim_ready_case(case_id: int):
+async def get_sim_ready_case(case_id: int, _: str = Depends(verify_credentials)):
     """Retrieve a single sim-ready case."""
     sim_db = next(get_sim_ready_db())
     try:
@@ -2536,7 +2559,7 @@ async def run_oracle(
 
 
 @app.get("/sim-ready/case/{case_id}/oracle")
-async def get_case_oracle(case_id: int):
+async def get_case_oracle(case_id: int, _: str = Depends(verify_credentials)):
     """Current Oracle distributions and item-quality flags for a case.
 
     Aggregates are recomputed from the per-rating rows on every read, so the scoring rule

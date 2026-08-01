@@ -5,6 +5,7 @@ import CaseEditPage from './pages/CaseEditPage'
 import NewCasePage from './pages/NewCasePage'
 import BuildFooter from './components/BuildFooter'
 import LoginGate from './components/LoginGate'
+import RequireAuth from './components/RequireAuth'
 
 export default function App() {
   return (
@@ -23,10 +24,10 @@ export default function App() {
       <main className="flex-1 mx-auto w-full max-w-6xl px-4 py-6">
         <Routes>
           <Route path="/" element={<Navigate to="/cases" replace />} />
-          <Route path="/cases" element={<CaseListPage />} />
-          <Route path="/cases/new" element={<NewCasePage />} />
-          <Route path="/cases/:caseId" element={<CaseViewPage />} />
-          <Route path="/cases/:caseId/edit" element={<CaseEditPage />} />
+          <Route path="/cases" element={<RequireAuth><CaseListPage /></RequireAuth>} />
+          <Route path="/cases/new" element={<RequireAuth><NewCasePage /></RequireAuth>} />
+          <Route path="/cases/:caseId" element={<RequireAuth><CaseViewPage /></RequireAuth>} />
+          <Route path="/cases/:caseId/edit" element={<RequireAuth><CaseEditPage /></RequireAuth>} />
           <Route path="*" element={<p className="text-ink-500">Not found.</p>} />
         </Routes>
       </main>

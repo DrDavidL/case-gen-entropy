@@ -351,7 +351,11 @@ def _load_persisted_analysis(case_id):
     payload = {}
     notes = []
     try:
-        r = requests.get(f"{BACKEND_URL}/sim-ready/case/{case_id}/analysis", timeout=30)
+        r = requests.get(
+            f"{BACKEND_URL}/sim-ready/case/{case_id}/analysis",
+            headers=get_auth_header(),
+            timeout=30,
+        )
         if r.status_code == 200:
             payload.update(r.json())
         elif r.status_code == 404:
@@ -366,7 +370,9 @@ def _load_persisted_analysis(case_id):
 
     try:
         r = requests.get(
-            f"{BACKEND_URL}/sim-ready/case/{case_id}/structured", timeout=30
+            f"{BACKEND_URL}/sim-ready/case/{case_id}/structured",
+            headers=get_auth_header(),
+            timeout=30,
         )
         if r.status_code == 200:
             record = r.json()
@@ -531,7 +537,11 @@ def _render_oracle_section(case_id, key_prefix="view"):
         getattr(st, notice[0])(notice[1])
 
     try:
-        r = requests.get(f"{BACKEND_URL}/sim-ready/case/{case_id}/oracle", timeout=30)
+        r = requests.get(
+            f"{BACKEND_URL}/sim-ready/case/{case_id}/oracle",
+            headers=get_auth_header(),
+            timeout=30,
+        )
     except requests.exceptions.RequestException as e:
         st.error(f"Connection error: {e}")
         return
@@ -1824,7 +1834,9 @@ with tab2:
 
         st.subheader("Load Existing Sim-Ready Case for Editing")
         try:
-            cases_resp = requests.get(f"{BACKEND_URL}/sim-ready/cases")
+            cases_resp = requests.get(
+                f"{BACKEND_URL}/sim-ready/cases", headers=get_auth_header()
+            )
             if cases_resp.status_code == 200:
                 sim_cases = cases_resp.json()
                 if sim_cases:
@@ -1838,7 +1850,8 @@ with tab2:
                     if st.button("Load for Editing", type="primary"):
                         selected_id = case_options[selected]
                         case_resp = requests.get(
-                            f"{BACKEND_URL}/sim-ready/case/{selected_id}"
+                            f"{BACKEND_URL}/sim-ready/case/{selected_id}",
+                            headers=get_auth_header(),
                         )
                         if case_resp.status_code == 200:
                             sim_case = case_resp.json()
@@ -1935,7 +1948,8 @@ with tab3:
             # Fetch and display the full case from the sim-ready DB
             try:
                 sim_resp = requests.get(
-                    f"{BACKEND_URL}/sim-ready/case/{case.get('case_id')}"
+                    f"{BACKEND_URL}/sim-ready/case/{case.get('case_id')}",
+                    headers=get_auth_header(),
                 )
                 if sim_resp.status_code == 200:
                     sim_case = sim_resp.json()
@@ -2051,7 +2065,8 @@ with tab4:
                 st.subheader("Simulator Case Files")
                 try:
                     sim_case_resp = requests.get(
-                        f"{BACKEND_URL}/sim-ready/case/{case_id}"
+                        f"{BACKEND_URL}/sim-ready/case/{case_id}",
+                        headers=get_auth_header(),
                     )
                     if sim_case_resp.status_code == 200:
                         sim_case = sim_case_resp.json()
@@ -2170,7 +2185,8 @@ with tab4:
             # --- Beta export: original LR/framework export ---
             try:
                 export_info_response = requests.get(
-                    f"{BACKEND_URL}/case/{case_id}/simulator-exports"
+                    f"{BACKEND_URL}/case/{case_id}/simulator-exports",
+                    headers=get_auth_header(),
                 )
                 if export_info_response.status_code == 200:
                     export_info = export_info_response.json()
@@ -2184,7 +2200,8 @@ with tab4:
                         if st.button("Generate JSON Export Files", type="primary"):
                             try:
                                 response = requests.get(
-                                    f"{BACKEND_URL}/case/{case_id}/output-files"
+                                    f"{BACKEND_URL}/case/{case_id}/output-files",
+                                    headers=get_auth_header(),
                                 )
 
                                 if response.status_code == 200:
@@ -2321,7 +2338,9 @@ with st.sidebar:
 
     if st.button("View All Cases"):
         try:
-            cases_response = requests.get(f"{BACKEND_URL}/cases")
+            cases_response = requests.get(
+                f"{BACKEND_URL}/cases", headers=get_auth_header()
+            )
             if cases_response.status_code == 200:
                 cases = cases_response.json()
                 st.write("**Existing Cases:**")
