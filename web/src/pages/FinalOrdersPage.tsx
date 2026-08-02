@@ -196,6 +196,30 @@ export default function FinalOrdersPage() {
   if (loading) return <p className="text-sm text-ink-500">Loading…</p>;
 
   const leakBlocked = preflight?.reason === 'diagnosis_leak';
+  const hits = (preflight?.leak_audit?.hits ?? []) as {
+    term?: string;
+    section?: string;
+    snippet?: string;
+  }[];
+
+  /**
+   * Why Run cannot be pressed, or null when it can.
+   *
+   * A disabled button with no explanation is the actual bug here: preflight correctly
+   * refused, and the screen said only "Blocked: diagnosis_leak" in a chip.
+   */
+  const runDisabled: string | null =
+    busy !== ''
+      ? 'Working…'
+      : !preflight
+        ? 'Run preflight first — it is free and shows what the raters will see.'
+        : preflight.ready
+          ? null
+          : leakBlocked
+            ? override.trim()
+              ? null
+              : 'The diagnosis leaks into what the raters see. Fix the case, or state an override reason below.'
+            : `Blocked: ${preflight.reason}. This is not overridable — the panel would rate a case the learner will not see.`;
 
   return (
     <div className="space-y-4">
@@ -310,7 +334,8 @@ export default function FinalOrdersPage() {
             <button
               className="btn btn-primary"
               onClick={run}
-              disabled={busy !== '' || !preflight || (!preflight.ready && !(leakBlocked && override.trim()))}
+              disabled={runDisabled !== null}
+              title={runDisabled ?? undefined}
             >
               {busy === 'run' ? 'Running…' : `Run panel${preflight ? ` (${preflight.estimated_calls} calls)` : ''}`}
             </button>
@@ -339,6 +364,40 @@ export default function FinalOrdersPage() {
             </div>
 
             {preflight.message && <p className="notice notice-warn">{preflight.message}</p>}
+
+            {runDisabled && <p className="notice notice-warn">{runDisabled}</p>}
+
+            {hits.length > 0 && (
+              <div className="notice notice-warn space-y-2">
+                <p className="font-medium">
+                  The diagnosis appears in what the raters would see.
+                </p>
+                <ul className="space-y-1">
+                  {hits.map((h, i) => (
+                    <li key={i} className="text-xs">
+                      <span className="chip chip-warn">{h.term}</span>{' '}
+                      <span className="text-ink-600">in {h.section}</span>
+                      {h.snippet && (
+                        <pre className="mt-1 overflow-x-auto rounded bg-white/60 p-1">
+                          {h.snippet}
+                        </pre>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs">
+                  <strong>Usually this is a case problem, not an override.</strong> A rater
+                  who can read the answer is not rating a decision — rename the offending
+                  item (for example &ldquo;PCR for Cyclospora&rdquo; &rarr; &ldquo;stool PCR for
+                  parasites&rdquo;) in{' '}
+                  <Link to={`/cases/${id}/edit`} className="underline">
+                    the case editor
+                  </Link>
+                  , then re-run preflight. Override only when the hit is genuinely benign,
+                  such as a diagnosis that appears solely as a parent&rsquo;s history.
+                </p>
+              </div>
+            )}
 
             {leakBlocked && (
               <div className="space-y-2">
