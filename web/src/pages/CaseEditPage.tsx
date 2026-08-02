@@ -213,30 +213,66 @@ export default function CaseEditPage() {
       <ParityBanner state={record} />
       {error && <Msg>{error}</Msg>}
 
+      {/* 49 fields in one column is a long scroll; these make it navigable. */}
+      <nav className="flex flex-wrap gap-1 text-xs">
+        {SECTIONS.map((sec) => (
+          <a key={sec.id} href={`#${sec.id}`} className="btn btn-ghost btn-sm">
+            {sec.label}
+          </a>
+        ))}
+      </nav>
+
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
         <div className="space-y-4">
-          {g(TOP, [])}
-          {g(PATIENT_APPROACH, ['patient_approach'])}
-          {g(HPI, ['hpi'])}
-          {g(PMH, ['past_medical_history'])}
-          {g(SOCIAL, ['social_history'])}
-          {g(FAMILY, ['family_history'])}
-          {g(MEDS, ['medications_allergies'])}
-          {g(EXAM_TEXT, [])}
-          {LISTS.map((l) => (
-            <ListEditor
-              key={l.key}
-              title={l.title}
-              rows={lists[l.key] ?? []}
-              onChange={(next) => setLists((s) => ({ ...s, [l.key]: next }))}
-              labelA={l.a.label}
-              labelB={l.b.label}
-            />
-          ))}
-          {g(REASONING, ['diagnostic_reasoning'])}
-          {g(TEACHING, ['teaching_points'])}
-          {g(DOOR_CHART, ['door_chart'])}
-          {g(VITALS, ['door_chart', 'vital_signs'])}
+          {/*
+            Ordered for authoring, not for the rendered document.
+
+            The renderer emits the Clinical Dashboard first and the Door Chart last,
+            because that is the order a learner meets them. Authoring runs the other way:
+            the Door Chart is who the patient IS -- name, age, chief complaint, setting,
+            vitals -- and every later field is written against it. Burying it at the
+            bottom, 49 fields down, made authors scroll past everything to check the age
+            they were writing about. The preview pane still shows true document order.
+          */}
+          <Anchor id="sec-case">{g(TOP, [])}</Anchor>
+          <Anchor id="sec-door">
+            {g(DOOR_CHART, ['door_chart'])}
+            {g(VITALS, ['door_chart', 'vital_signs'])}
+          </Anchor>
+          <Anchor id="sec-persona">{g(PATIENT_APPROACH, ['patient_approach'])}</Anchor>
+          <Anchor id="sec-hpi">{g(HPI, ['hpi'])}</Anchor>
+          <Anchor id="sec-history">
+            {g(PMH, ['past_medical_history'])}
+            {g(SOCIAL, ['social_history'])}
+            {g(FAMILY, ['family_history'])}
+            {g(MEDS, ['medications_allergies'])}
+          </Anchor>
+          <Anchor id="sec-exam">{g(EXAM_TEXT, [])}</Anchor>
+
+          <Anchor id="sec-sim">
+            <div className="notice notice-warn text-xs">
+              <strong>These three lists are not part of the case document.</strong> Nothing
+              below appears in the preview, because the renderer never emits them. They
+              drive the diagnostic framework and likelihood ratios, the blinded view the
+              Oracle rates, and the simulator exports. Editing them and seeing the preview
+              not change is correct.
+            </div>
+            {LISTS.map((l) => (
+              <ListEditor
+                key={l.key}
+                title={l.title}
+                rows={lists[l.key] ?? []}
+                onChange={(next) => setLists((s) => ({ ...s, [l.key]: next }))}
+                labelA={l.a.label}
+                labelB={l.b.label}
+              />
+            ))}
+          </Anchor>
+
+          <Anchor id="sec-reasoning">
+            {g(REASONING, ['diagnostic_reasoning'])}
+            {g(TEACHING, ['teaching_points'])}
+          </Anchor>
         </div>
 
         <aside className="lg:sticky lg:top-4 lg:self-start">
@@ -268,11 +304,36 @@ export default function CaseEditPage() {
   );
 }
 
+const SECTIONS = [
+  { id: 'sec-case', label: 'Case' },
+  { id: 'sec-door', label: 'Door chart' },
+  { id: 'sec-persona', label: 'Persona' },
+  { id: 'sec-hpi', label: 'HPI' },
+  { id: 'sec-history', label: 'History' },
+  { id: 'sec-exam', label: 'ROS & exam' },
+  { id: 'sec-sim', label: 'Simulator lists' },
+  { id: 'sec-reasoning', label: 'Reasoning & teaching' },
+];
+
+/** Scroll target wrapper. `scroll-mt` keeps the heading clear of the sticky header. */
+function Anchor({ id, children }: { id: string; children: React.ReactNode }) {
+  return (
+    <div id={id} className="scroll-mt-4 space-y-4">
+      {children}
+    </div>
+  );
+}
+
 function Back({ id }: { id: number }) {
   return (
-    <Link to={`/cases/${id}`} className="text-sm text-ink-500 hover:text-ink-800">
-      ← Back to case
-    </Link>
+    <div className="flex flex-wrap items-center gap-3">
+      <Link to={`/cases/${id}`} className="text-sm text-ink-500 hover:text-ink-800">
+        ← Back to case
+      </Link>
+      <Link to={`/cases/${id}/orders`} className="btn btn-secondary btn-sm">
+        Final Orders &amp; Oracle
+      </Link>
+    </div>
   );
 }
 
