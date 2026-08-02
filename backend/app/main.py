@@ -29,6 +29,7 @@ from backend.models.database import (
 )
 from backend.models.editing_schemas import (
     AdoptCaseRequest,
+    AnalysisUpdateRequest,
     AuthCheckResponse,
     FinalOrdersResponse,
     OraclePreflightResponse,
@@ -74,6 +75,7 @@ from backend.utils import final_orders_store, oracle_service, oracle_stems, pane
 from backend.utils.auth import verify_credentials, verify_credentials_silent
 from backend.utils.authoring_store import (
     load_analysis,
+    update_analysis_in_place,
     persist_case_version,
     snapshot_version,
 )
@@ -1266,6 +1268,60 @@ async def get_sim_ready_case_analysis(
                 detail="No stored analysis for this case. Cases finalized before the "
                 "authoring record existed have no persisted framework/LR data.",
             )
+        return analysis
+    finally:
+        sim_db.close()
+
+
+@app.put("/sim-ready/case/{case_id}/analysis", response_model=CaseAnalysisResponse)
+async def update_sim_ready_case_analysis(
+    case_id: int,
+    update: AnalysisUpdateRequest,
+    username: str = Depends(verify_credentials),
+):
+    """Edit likelihood ratios and tier priors in place (ADR-007).
+
+    **Does not write a new version, by decision** (2026-08-02). `ADR-003` versions the
+    case so a learner run stays attributable to what the learner saw, but these numbers
+    are not learner-facing: the learner reads `case_details.content` and the Oracle rates
+    blinded structured fields. Versioning every LR tweak would add lineage noise without
+    protecting anything, on the working assumption that the case text is settled before
+    LRs are tuned.
+
+    What that trades away is recorded rather than hidden: under `ADR-011` an LR edited
+    after learner runs exist changes a prediction those runs were compared against. Rows a
+    human actually changed are stamped `author_overridden`, and the version's `updated_at`
+    moves, so the edit is reconstructable afterwards.
+
+    Bucket names are not editable here. Renaming one orphans every LR that points at the
+    old name; `/regenerate-lrs` is the supported repair.
+    """
+    if not AUTHORING_ENABLED:
+        raise HTTPException(status_code=503, detail="Authoring schema is not available")
+
+    sim_db = next(get_sim_ready_db())
+    try:
+        analysis, lrs_changed, tiers_changed = update_analysis_in_place(
+            sim_db,
+            case_id,
+            likelihood_ratios=[
+                lr.model_dump() for lr in update.feature_likelihood_ratios
+            ],
+            tier_priors=[t.model_dump() for t in update.diagnostic_framework],
+        )
+        if analysis is None:
+            raise HTTPException(
+                status_code=404,
+                detail="This case has no authoring record. Adopt it first: "
+                f"POST /sim-ready/case/{case_id}/adopt",
+            )
+        logger.info(
+            "Analysis edited in place by %s: case=%d, %d LR(s), %d tier prior(s)",
+            username,
+            case_id,
+            lrs_changed,
+            tiers_changed,
+        )
         return analysis
     finally:
         sim_db.close()

@@ -207,6 +207,10 @@ def load_analysis(db: Session, case_detail_id: int) -> dict[str, Any] | None:
         ],
         "feature_likelihood_ratios": [
             {
+                # Exposed so an in-place edit can address one row. Feature name plus
+                # bucket is not a key -- the same feature legitimately carries a
+                # different LR for each bucket it discriminates.
+                "id": lr.id,
                 "feature_name": lr.feature_name,
                 "feature_category": lr.feature_category,
                 "diagnostic_bucket": lr.diagnostic_bucket,
@@ -217,3 +221,81 @@ def load_analysis(db: Session, case_detail_id: int) -> dict[str, Any] | None:
             for lr in version.feature_lrs
         ],
     }
+
+
+def update_analysis_in_place(
+    db: Session,
+    case_detail_id: int,
+    *,
+    likelihood_ratios: list[dict[str, Any]],
+    tier_priors: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, int, int]:
+    """Edit LR values and tier priors on the latest version, without versioning. Commits.
+
+    Returns `(analysis, lrs_changed, tiers_changed)`.
+
+    **In place on purpose** (2026-08-02, David). `ADR-003` makes versions immutable so a
+    learner run stays attributable to what the learner saw — but LRs are not learner-facing.
+    The learner reads `case_details.content`; the Oracle rates blinded structured fields.
+    Neither consults these numbers, so a new version per LR tweak would add lineage noise
+    without protecting anything. The working assumption is that the case text is settled
+    before LRs are tuned.
+
+    The residual exposure is `ADR-011`/Phase 6, where predicted entropy is compared against
+    observed learner variance: editing an LR after runs exist silently changes the
+    prediction. `provenance` and `updated_at` are what make that recoverable after the
+    fact, which is why a changed row is stamped rather than quietly overwritten.
+
+    Only rows already belonging to this case's latest version can be touched — an id from
+    another case is ignored rather than trusted.
+    """
+    version = (
+        db.query(CaseVersion)
+        .filter(CaseVersion.case_detail_id == case_detail_id)
+        .order_by(CaseVersion.id.desc())
+        .first()
+    )
+    if version is None:
+        return None, 0, 0
+
+    by_id = {lr.id: lr for lr in version.feature_lrs}
+    lrs_changed = 0
+    for edit in likelihood_ratios or []:
+        row = by_id.get(edit.get("id"))
+        if row is None:
+            continue
+        new_value = edit.get("likelihood_ratio")
+        if new_value is None:
+            continue
+        # Compare before stamping. Re-saving an untouched form must not relabel every
+        # row as author_overridden -- provenance is only meaningful if it marks rows a
+        # human actually changed. Same reasoning as `render_detached`.
+        if float(row.likelihood_ratio or 0) != float(new_value):
+            row.likelihood_ratio = float(new_value)
+            row.provenance = "author_overridden"
+            lrs_changed += 1
+
+    by_tier = {f.tier_level: f for f in version.frameworks}
+    tiers_changed = 0
+    for edit in tier_priors or []:
+        row = by_tier.get(edit.get("tier_level"))
+        priors = edit.get("a_priori_probabilities")
+        if row is None or not isinstance(priors, dict):
+            continue
+        # Keys are bucket names. Unknown ones are dropped rather than written: a bucket
+        # renamed in the framework would otherwise silently accumulate an orphan prior.
+        known = {
+            b.get("name") for b in (row.diagnostic_buckets or []) if isinstance(b, dict)
+        }
+        cleaned = {k: float(v) for k, v in priors.items() if k in known}
+        if cleaned != (row.a_priori_probabilities or {}):
+            row.a_priori_probabilities = cleaned
+            tiers_changed += 1
+
+    if lrs_changed or tiers_changed:
+        version.updated_at = datetime.utcnow()  # noqa: DTZ003 — column is naive
+        db.commit()
+    else:
+        db.rollback()
+
+    return load_analysis(db, case_detail_id), lrs_changed, tiers_changed

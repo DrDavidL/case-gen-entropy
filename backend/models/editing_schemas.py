@@ -253,6 +253,9 @@ class FeatureLROut(BaseModel):
     override before trusting it.
     """
 
+    # Row id, so an in-place edit can address exactly one LR. Feature name plus bucket is
+    # not a key: the same feature legitimately carries a different LR per bucket.
+    id: int | None = None
     feature_name: str
     feature_category: str
     diagnostic_bucket: str
@@ -260,6 +263,40 @@ class FeatureLROut(BaseModel):
     tier_level: int | None = None
     likelihood_ratio: float
     provenance: str = "llm_generated"
+
+
+class LikelihoodRatioEdit(BaseModel):
+    """One in-place LR change, addressed by row id."""
+
+    id: int
+    likelihood_ratio: float = Field(
+        gt=0,
+        description="A likelihood ratio is a ratio of probabilities, so it is strictly "
+        "positive. 1.0 means the feature does not discriminate.",
+    )
+
+
+class TierPriorEdit(BaseModel):
+    """Replacement priors for one tier, keyed by bucket name."""
+
+    tier_level: int
+    a_priori_probabilities: dict[str, float] = Field(default_factory=dict)
+
+
+class AnalysisUpdateRequest(BaseModel):
+    """`PUT /sim-ready/case/{id}/analysis` — edit LRs and priors in place (ADR-007).
+
+    Deliberately not versioned. LRs are authoring analysis, not learner-facing content,
+    so a new version per tweak would add lineage noise without protecting a learner run.
+    Changed rows are stamped `author_overridden` so the edit stays visible in the data.
+
+    Bucket names and tier structure are not editable here. Renaming a bucket orphans every
+    LR pointing at the old name, and the supported repair for that is `/regenerate-lrs`,
+    which re-runs generation against the current framework with exact bucket names.
+    """
+
+    feature_likelihood_ratios: list[LikelihoodRatioEdit] = Field(default_factory=list)
+    diagnostic_framework: list[TierPriorEdit] = Field(default_factory=list)
 
 
 class CaseAnalysisResponse(BaseModel):

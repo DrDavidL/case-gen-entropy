@@ -1,22 +1,20 @@
 /**
  * Diagnostic framework and likelihood ratios (ADR-001, ADR-007).
  *
- * **Read-only, deliberately.** No endpoint accepts edited tiers or LRs for a *saved*
- * case — `persist_case_version` is the only writer, and it is reachable only from paths
- * that generate the analysis or carry it forward. Streamlit is not ahead here: its tier
- * and LR editors operate on the Redis session during generation, so once a case is saved
- * neither UI can change these values. Editing is Phase 5, and it needs a backend endpoint
- * that writes a new version and records `author_overridden` provenance.
+ * Values and priors are editable **in place** — no new case version. LRs are authoring
+ * analysis, not learner-facing content: the learner reads `case_details.content` and the
+ * Oracle rates blinded structured fields, so versioning each tweak would add lineage
+ * noise without protecting a learner run. Rows a human actually changed are stamped
+ * `author_overridden` server-side, which is what keeps the edit visible afterwards.
  *
- * What this screen does provide is the transparency ADR-007 asks for: the numbers, where
- * they came from, and which bucket each one moves — data that until ADR-001 was generated
- * on every case and then thrown away.
+ * Bucket names and tier structure are not editable. Renaming a bucket orphans every LR
+ * pointing at the old name; `/regenerate-lrs` is the supported repair for that.
  */
 
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 
-import { getAnalysis, type CaseAnalysis } from '../lib/api';
+import { getAnalysis, updateAnalysis, type CaseAnalysis } from '../lib/api';
 
 /** Shared bands so the same LR reads the same everywhere on the page. */
 function strength(lr: number): { label: string; chip: string } {
@@ -35,6 +33,11 @@ export default function AnalysisPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [tier, setTier] = useState<number | 'all'>('all');
+  // Edits held as strings so a half-typed "1." does not become NaN mid-keystroke.
+  const [lrEdits, setLrEdits] = useState<Record<number, string>>({});
+  const [priorEdits, setPriorEdits] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState('');
 
   useEffect(() => {
     if (!Number.isFinite(id)) return;
@@ -47,6 +50,49 @@ export default function AnalysisPage() {
       cancelled = true;
     };
   }, [id]);
+
+  const dirty = Object.keys(lrEdits).length > 0 || Object.keys(priorEdits).length > 0;
+
+  const save = async () => {
+    setSaving(true);
+    setSaved('');
+    try {
+      const priorsByTier: Record<number, Record<string, number>> = {};
+      for (const [key, raw] of Object.entries(priorEdits)) {
+        const [t, ...rest] = key.split('|');
+        const bucket = rest.join('|');
+        const v = Number(raw);
+        if (!Number.isFinite(v)) continue;
+        (priorsByTier[Number(t)] ??= {})[bucket] = v;
+      }
+      // Priors are replace-per-tier server-side, so an edited tier must be sent whole or
+      // the untouched buckets would be dropped.
+      const framework = Object.entries(priorsByTier).map(([t, edited]) => {
+        const existing =
+          (data?.diagnostic_framework ?? []).find((x) => x.tier_level === Number(t))
+            ?.a_priori_probabilities ?? {};
+        return {
+          tier_level: Number(t),
+          a_priori_probabilities: { ...existing, ...edited },
+        };
+      });
+
+      const fresh = await updateAnalysis(id, {
+        feature_likelihood_ratios: Object.entries(lrEdits)
+          .map(([rid, raw]) => ({ id: Number(rid), likelihood_ratio: Number(raw) }))
+          .filter((e) => Number.isFinite(e.likelihood_ratio) && e.likelihood_ratio > 0),
+        diagnostic_framework: framework,
+      });
+      setData(fresh);
+      setLrEdits({});
+      setPriorEdits({});
+      setSaved('Saved.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (!Number.isFinite(id)) return <p className="notice notice-error">Bad case id.</p>;
   if (loading) return <p className="text-sm text-ink-500">Loading analysis…</p>;
@@ -81,6 +127,10 @@ export default function AnalysisPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Back id={id} />
         <div className="flex flex-wrap items-center gap-2 text-xs">
+          {saved && <span className="chip chip-good">{saved}</span>}
+          <button className="btn btn-primary btn-sm" onClick={save} disabled={!dirty || saving}>
+            {saving ? 'Saving…' : dirty ? 'Save changes' : 'No changes'}
+          </button>
           <span className="chip chip-neutral">version {data.version}</span>
           <span className="chip chip-neutral">{tiers.length} tiers</span>
           <span className="chip chip-neutral">{lrs.length} likelihood ratios</span>
@@ -88,9 +138,10 @@ export default function AnalysisPage() {
       </div>
 
       <div className="notice notice-warn text-xs">
-        Read-only. No endpoint accepts edited tiers or likelihood ratios for a saved case
-        yet — Streamlit cannot change them after saving either, because its editors work
-        on the generation session. Editing with recorded provenance is Phase 5 (ADR-007).
+        Edits save <strong>in place</strong> — no new case version, because these numbers
+        are not learner-facing. Changed rows are marked <em>author overridden</em> so the
+        edit stays visible. Bucket names are not editable here: renaming one orphans every
+        likelihood ratio pointing at it, and re-running LR generation is the repair.
       </div>
 
       <section className="card p-4">
@@ -98,7 +149,13 @@ export default function AnalysisPage() {
         <div className="space-y-4">
           {tiers.map((t) => {
             const priors = t.a_priori_probabilities ?? {};
-            const total = Object.values(priors).reduce((a, b) => a + b, 0);
+            // Sum the values on screen, edits included -- a sum that ignores what you
+            // just typed is worse than none, because it looks authoritative.
+            const total = (t.buckets ?? []).reduce((acc, b) => {
+              const pending = priorEdits[`${t.tier_level}|${b.name}`];
+              const v = pending !== undefined ? Number(pending) : (priors[b.name] ?? 0);
+              return acc + (Number.isFinite(v) ? v : 0);
+            }, 0);
             return (
               <div key={t.tier_level} className="rounded border border-ink-200 p-3">
                 <div className="mb-2 flex items-center justify-between">
@@ -126,9 +183,17 @@ export default function AnalysisPage() {
                               style={{ width: `${Math.round((p ?? 0) * 100)}%` }}
                             />
                           </div>
-                          <span className="w-12 text-right tabular-nums text-ink-500">
-                            {p === undefined ? '—' : p.toFixed(3)}
-                          </span>
+                          <input
+                            aria-label={`Prior for ${b.name}`}
+                            className="input w-20 py-0.5 text-right tabular-nums"
+                            value={priorEdits[`${t.tier_level}|${b.name}`] ?? (p ?? 0)}
+                            onChange={(e) =>
+                              setPriorEdits((s) => ({
+                                ...s,
+                                [`${t.tier_level}|${b.name}`]: e.target.value,
+                              }))
+                            }
+                          />
                         </div>
                         <p className="ml-0 text-ink-500">{b.description}</p>
                       </li>
@@ -187,8 +252,16 @@ export default function AnalysisPage() {
                         <tr key={i} className="border-t border-ink-100 align-top">
                           <td className="py-1 pr-2">{l.feature_name}</td>
                           <td className="py-1 pr-2 text-ink-600">{l.diagnostic_bucket}</td>
-                          <td className="py-1 pr-2 text-right tabular-nums font-medium">
-                            {l.likelihood_ratio}
+                          <td className="py-1 pr-2 text-right">
+                            <input
+                              aria-label={`Likelihood ratio for ${l.feature_name}`}
+                              className="input w-20 py-0.5 text-right tabular-nums"
+                              value={lrEdits[l.id ?? -1] ?? l.likelihood_ratio}
+                              onChange={(e) =>
+                                l.id != null &&
+                                setLrEdits((s) => ({ ...s, [l.id!]: e.target.value }))
+                              }
+                            />
                           </td>
                           <td className="py-1 pr-2">
                             <span className={`chip ${s.chip}`}>{s.label}</span>

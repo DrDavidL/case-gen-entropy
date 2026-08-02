@@ -303,3 +303,27 @@ export const runOracle = (caseId: number, leakOverrideReason?: string) =>
 
 export const getOracle = (caseId: number) =>
   request<OracleResults>(`/sim-ready/case/${caseId}/oracle`, { auth: true });
+
+/**
+ * Edit likelihood ratios and tier priors in place (ADR-007).
+ *
+ * **Does not create a new version.** LRs are authoring analysis, not learner-facing
+ * content, so versioning each tweak would add lineage noise without protecting a learner
+ * run. Rows whose value actually changed are stamped `author_overridden` server-side —
+ * re-saving an untouched form relabels nothing.
+ */
+export const updateAnalysis = (
+  caseId: number,
+  body: {
+    feature_likelihood_ratios?: { id: number; likelihood_ratio: number }[];
+    diagnostic_framework?: {
+      tier_level: number;
+      a_priori_probabilities: Record<string, number>;
+    }[];
+  },
+) =>
+  request<CaseAnalysis>(`/sim-ready/case/${caseId}/analysis`, {
+    method: 'PUT',
+    auth: true,
+    body: JSON.stringify(body),
+  });

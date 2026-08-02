@@ -50,6 +50,27 @@
         "title": "AdoptCaseRequest",
         "type": "object"
       },
+      "AnalysisUpdateRequest": {
+        "description": "`PUT /sim-ready/case/{id}/analysis` \u2014 edit LRs and priors in place (ADR-007).\n\nDeliberately not versioned. LRs are authoring analysis, not learner-facing content,\nso a new version per tweak would add lineage noise without protecting a learner run.\nChanged rows are stamped `author_overridden` so the edit stays visible in the data.\n\nBucket names and tier structure are not editable here. Renaming a bucket orphans every\nLR pointing at the old name, and the supported repair for that is `/regenerate-lrs`,\nwhich re-runs generation against the current framework with exact bucket names.",
+        "properties": {
+          "diagnostic_framework": {
+            "items": {
+              "$ref": "#/components/schemas/TierPriorEdit"
+            },
+            "title": "Diagnostic Framework",
+            "type": "array"
+          },
+          "feature_likelihood_ratios": {
+            "items": {
+              "$ref": "#/components/schemas/LikelihoodRatioEdit"
+            },
+            "title": "Feature Likelihood Ratios",
+            "type": "array"
+          }
+        },
+        "title": "AnalysisUpdateRequest",
+        "type": "object"
+      },
       "AuthCheckResponse": {
         "description": "Result of validating a credential, for the SPA's login form (ADR-021).",
         "properties": {
@@ -891,6 +912,17 @@
             "title": "Feature Name",
             "type": "string"
           },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "likelihood_ratio": {
             "title": "Likelihood Ratio",
             "type": "number"
@@ -1264,6 +1296,27 @@
           "expected_answer"
         ],
         "title": "HistoryQuestion",
+        "type": "object"
+      },
+      "LikelihoodRatioEdit": {
+        "description": "One in-place LR change, addressed by row id.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "likelihood_ratio": {
+            "description": "A likelihood ratio is a ratio of probabilities, so it is strictly positive. 1.0 means the feature does not discriminate.",
+            "exclusiveMinimum": 0.0,
+            "title": "Likelihood Ratio",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "likelihood_ratio"
+        ],
+        "title": "LikelihoodRatioEdit",
         "type": "object"
       },
       "MedicationsAllergies": {
@@ -2682,6 +2735,27 @@
         "title": "TeachingPoints",
         "type": "object"
       },
+      "TierPriorEdit": {
+        "description": "Replacement priors for one tier, keyed by bucket name.",
+        "properties": {
+          "a_priori_probabilities": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "A Priori Probabilities",
+            "type": "object"
+          },
+          "tier_level": {
+            "title": "Tier Level",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tier_level"
+        ],
+        "title": "TierPriorEdit",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -3790,6 +3864,59 @@
           }
         ],
         "summary": "Get Sim Ready Case Analysis"
+      },
+      "put": {
+        "description": "Edit likelihood ratios and tier priors in place (ADR-007).\n\n**Does not write a new version, by decision** (2026-08-02). `ADR-003` versions the\ncase so a learner run stays attributable to what the learner saw, but these numbers\nare not learner-facing: the learner reads `case_details.content` and the Oracle rates\nblinded structured fields. Versioning every LR tweak would add lineage noise without\nprotecting anything, on the working assumption that the case text is settled before\nLRs are tuned.\n\nWhat that trades away is recorded rather than hidden: under `ADR-011` an LR edited\nafter learner runs exist changes a prediction those runs were compared against. Rows a\nhuman actually changed are stamped `author_overridden`, and the version's `updated_at`\nmoves, so the edit is reconstructable afterwards.\n\nBucket names are not editable here. Renaming one orphans every LR that points at the\nold name; `/regenerate-lrs` is the supported repair.",
+        "operationId": "update_sim_ready_case_analysis_sim_ready_case__case_id__analysis_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalysisUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Update Sim Ready Case Analysis"
       }
     },
     "/sim-ready/case/{case_id}/copy": {
