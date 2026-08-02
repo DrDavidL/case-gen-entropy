@@ -70,7 +70,7 @@
         "type": "object"
       },
       "CaseAnalysisResponse": {
-        "description": "`GET /sim-ready/case/{id}/analysis` \u2014 framework and LR data for the latest version.",
+        "description": "`GET /sim-ready/case/{id}/analysis` \u2014 framework and LR data for the latest version.\n\nTyped element-wise rather than as `list[dict[str, Any]]`, which the generator renders\nas `Record<string, never>` \u2014 a type that describes nothing and blocks every field\naccess on the client. Same failure as the endpoints that had no `response_model` at\nall (ToDos failure 3), just one level down.",
         "properties": {
           "case_family_id": {
             "title": "Case Family Id",
@@ -82,14 +82,14 @@
           },
           "diagnostic_framework": {
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/DiagnosticTierOut"
             },
             "title": "Diagnostic Framework",
             "type": "array"
           },
           "feature_likelihood_ratios": {
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/FeatureLROut"
             },
             "title": "Feature Likelihood Ratios",
             "type": "array"
@@ -529,6 +529,24 @@
         "title": "DiagnosticBucket",
         "type": "object"
       },
+      "DiagnosticBucketOut": {
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "DiagnosticBucketOut",
+        "type": "object"
+      },
       "DiagnosticReasoning": {
         "properties": {
           "differential_diagnoses": {
@@ -602,6 +620,34 @@
           "a_priori_probabilities"
         ],
         "title": "DiagnosticTier",
+        "type": "object"
+      },
+      "DiagnosticTierOut": {
+        "description": "One tier of the framework, with its prior over buckets.\n\nPriors must sum to 1.0. Validation happens at export time rather than generation, so\na drifted tier reaches a reader intact \u2014 worth surfacing rather than silently\nnormalising here.",
+        "properties": {
+          "a_priori_probabilities": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "A Priori Probabilities",
+            "type": "object"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticBucketOut"
+            },
+            "title": "Buckets",
+            "type": "array"
+          },
+          "tier_level": {
+            "title": "Tier Level",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tier_level"
+        ],
+        "title": "DiagnosticTierOut",
         "type": "object"
       },
       "DoorChart": {
@@ -828,6 +874,51 @@
           "likelihood_ratio"
         ],
         "title": "FeatureLR",
+        "type": "object"
+      },
+      "FeatureLROut": {
+        "description": "One feature's likelihood ratio for one diagnostic bucket (ADR-007).\n\n`provenance` is the point of showing these at all: an author needs to know whether a\nnumber came from the generator, a re-assessment panel, a literature anchor, or a human\noverride before trusting it.",
+        "properties": {
+          "diagnostic_bucket": {
+            "title": "Diagnostic Bucket",
+            "type": "string"
+          },
+          "feature_category": {
+            "title": "Feature Category",
+            "type": "string"
+          },
+          "feature_name": {
+            "title": "Feature Name",
+            "type": "string"
+          },
+          "likelihood_ratio": {
+            "title": "Likelihood Ratio",
+            "type": "number"
+          },
+          "provenance": {
+            "default": "llm_generated",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "tier_level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier Level"
+          }
+        },
+        "required": [
+          "feature_name",
+          "feature_category",
+          "diagnostic_bucket",
+          "likelihood_ratio"
+        ],
+        "title": "FeatureLROut",
         "type": "object"
       },
       "FinalOrderInput": {

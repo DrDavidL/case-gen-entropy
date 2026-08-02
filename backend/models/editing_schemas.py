@@ -227,16 +227,57 @@ class StructuredRecordResponse(BaseModel):
     parity_message: str | None = None
 
 
+class DiagnosticBucketOut(BaseModel):
+    name: str
+    description: str = ""
+
+
+class DiagnosticTierOut(BaseModel):
+    """One tier of the framework, with its prior over buckets.
+
+    Priors must sum to 1.0. Validation happens at export time rather than generation, so
+    a drifted tier reaches a reader intact — worth surfacing rather than silently
+    normalising here.
+    """
+
+    tier_level: int
+    buckets: list[DiagnosticBucketOut] = Field(default_factory=list)
+    a_priori_probabilities: dict[str, float] = Field(default_factory=dict)
+
+
+class FeatureLROut(BaseModel):
+    """One feature's likelihood ratio for one diagnostic bucket (ADR-007).
+
+    `provenance` is the point of showing these at all: an author needs to know whether a
+    number came from the generator, a re-assessment panel, a literature anchor, or a human
+    override before trusting it.
+    """
+
+    feature_name: str
+    feature_category: str
+    diagnostic_bucket: str
+    # Nullable: the legacy beta table dropped tier_level, so older rows may not carry one.
+    tier_level: int | None = None
+    likelihood_ratio: float
+    provenance: str = "llm_generated"
+
+
 class CaseAnalysisResponse(BaseModel):
-    """`GET /sim-ready/case/{id}/analysis` — framework and LR data for the latest version."""
+    """`GET /sim-ready/case/{id}/analysis` — framework and LR data for the latest version.
+
+    Typed element-wise rather than as `list[dict[str, Any]]`, which the generator renders
+    as `Record<string, never>` — a type that describes nothing and blocks every field
+    access on the client. Same failure as the endpoints that had no `response_model` at
+    all (ToDos failure 3), just one level down.
+    """
 
     case_version_id: int
     case_family_id: int
     version: int
     primary_diagnosis: str | None = None
     render_detached: bool = False
-    diagnostic_framework: list[dict[str, Any]] = Field(default_factory=list)
-    feature_likelihood_ratios: list[dict[str, Any]] = Field(default_factory=list)
+    diagnostic_framework: list[DiagnosticTierOut] = Field(default_factory=list)
+    feature_likelihood_ratios: list[FeatureLROut] = Field(default_factory=list)
 
 
 class OracleItemPreviewRequest(BaseModel):

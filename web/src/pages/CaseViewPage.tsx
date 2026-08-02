@@ -96,6 +96,9 @@ export default function CaseViewPage() {
               <Link to={`/cases/${id}/orders`} className="btn btn-secondary btn-sm">
                 Final Orders &amp; Oracle
               </Link>
+              <Link to={`/cases/${id}/analysis`} className="btn btn-secondary btn-sm">
+                Framework &amp; LRs
+              </Link>
             </>
           )}
           <span className="text-xs tabular-nums text-ink-400">#{id}</span>
