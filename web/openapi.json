@@ -1009,7 +1009,7 @@
             "type": "boolean"
           },
           "suppression_message": {
-            "default": "Order received. This study is not available through the health system at this time, so no result has returned.",
+            "default": "Order received. This is not available through the health system at this time.",
             "title": "Suppression Message",
             "type": "string"
           },

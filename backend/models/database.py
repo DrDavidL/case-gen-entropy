@@ -27,9 +27,11 @@ from sqlalchemy.pool import QueuePool
 # orders are being measured, and it has to stay plausible in world. The simulator holds
 # the same string in `direct-sim/backend/final_orders.py` and resolves older
 # "Result pending" rows to it, so existing cases do not need re-editing.
+# Says neither "study" nor "result" on purpose: a Final Order may be a test, a consult or
+# a treatment ("Intravenous fluid therapy" is one in production), and one message has to
+# read correctly for all three.
 DEFAULT_SUPPRESSION_MESSAGE = (
-    "Order received. This study is not available through the health system at this "
-    "time, so no result has returned."
+    "Order received. This is not available through the health system at this time."
 )
 
 logger = logging.getLogger(__name__)
