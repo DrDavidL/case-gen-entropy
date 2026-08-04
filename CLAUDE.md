@@ -197,7 +197,7 @@ Saves to 3 tables: `cases`, `diagnostic_frameworks`, `feature_likelihood_ratios`
 | `CASE_GEN_MODEL` | No | `openai/gpt-4o-2024-08-06` | Generation-pipeline model |
 | `ORACLE_MODEL` | No | `openai/gpt-5.6-sol` | Oracle panel model. Bare `openai/gpt-5.6` does **not** exist |
 | `ORACLE_REASONING_EFFORT` | No | `medium` | Confirmed by the research group, ADR-014 |
-| `ORACLE_STEM_VERSION` | No | `v2_revised` | `v1_original` or `v2_revised`. **Stem not yet group-approved** |
+| `ORACLE_STEM_VERSION` | No | `v2_revised` | `v1_original` or `v2_revised`. Stem approved 2026-08-04, ADR-014 |
 | `ORACLE_CONCURRENCY` | No | `8` | Panel semaphore. Sequential would take ~30 min/case |
 | `ORACLE_DEFAULT_SPECIALTY` | No | generic | Fallback for the roster's subspecialist seat |
 | `PANEL_REQUEST_TIMEOUT` | No | `180` | Per-panelist request timeout (seconds) |
@@ -346,6 +346,12 @@ Four things that are easy to get wrong:
   `POST /sim-ready/case/{id}/resync`, which rebuilds the structured record from the edited markdown
   as a new version. Comparison is whitespace-insensitive so the editor's split/rejoin does not
   block a save that changed nothing.
+- **The simulator does not read `GET /sim-ready/case/{id}/final-orders`.** As of 2026-08-04 it
+  resolves suppression terms straight from `authoring.case_final_orders`, because suppression sits
+  on the learner's request path and must not depend on this service being reachable. It does call
+  `POST /oracle/render-items` for the phase-3 rating items — the stem is the instrument and has one
+  renderer — so `CASE_GEN_URL` being wrong costs the ratings, not the suppression. The endpoint
+  stays as the documented contract and for anything else that needs it.
 - **Migration `0003_final_orders_and_panels` lives in `direct-sim`**, which owns the shared
   database's schema. This app probes with `final_orders_schema_ready()` and degrades to 503 rather
   than running DDL. That probe is deliberately separate from `authoring_schema_ready()`, so a

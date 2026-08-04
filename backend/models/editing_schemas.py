@@ -2,6 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from backend.models.database import DEFAULT_SUPPRESSION_MESSAGE
 from backend.models.schemas import CaseInput
 from backend.models.structured_outputs import SimReadyCaseDetailsStructured
 
@@ -112,7 +113,7 @@ class FinalOrderInput(BaseModel):
         pattern="^(author_entered|llm_suggested_accepted)$",
     )
     suppress_results: bool = True
-    suppression_message: str = "Result pending"
+    suppression_message: str = DEFAULT_SUPPRESSION_MESSAGE
     suppression_synonyms: list[str] = Field(
         default_factory=list,
         description="Alternate phrasings the simulator also suppresses. Author-supplied "

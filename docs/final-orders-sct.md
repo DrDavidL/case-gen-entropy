@@ -27,12 +27,11 @@ unauthored open text field and is not this instrument. Proposal §4.3 Change 5 i
 
 ## 2. The rating stem
 
-> **Not yet approved.** Cory's 2026-07-29 review said the current stem "seems reasonable" and
-> asked to see any proposed change first. The revision below *is* a change, so it is implemented
-> but not treated as settled. **Do not run a production Oracle panel until the group confirms the
-> wording** — the stem determines what the panel is asked, so changing it afterwards invalidates
-> every distribution generated before the change. Nothing is lost by waiting: no case carries Final
-> Orders yet. See `Decisions.md` ADR-014.
+> **Approved 2026-08-04.** Cory's 2026-07-29 review asked to see any proposed change first; he
+> confirmed `v2_revised` on 2026-08-04, and the hold on running production panels is lifted. The
+> stem determines what the panel is asked, so a later wording change still invalidates every
+> distribution generated under this one — treat any further edit as reopening ADR-014, not as
+> copy-editing. See `Decisions.md` ADR-014.
 
 Both wordings live in `backend/utils/oracle_stems.py` and are selected by `ORACLE_STEM_VERSION`:
 `v1_original` (Alex's draft) and `v2_revised` (below). Every run is stamped with

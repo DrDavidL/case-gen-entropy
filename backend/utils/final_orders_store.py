@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from backend.models.database import (
+    DEFAULT_SUPPRESSION_MESSAGE,
     CaseFinalOrder,
     CaseVersion,
     PanelRating,
@@ -129,7 +130,7 @@ def replace_final_orders(
                 else bool(order["suppress_results"])
             ),
             "suppression_message": (
-                order.get("suppression_message") or "Result pending"
+                order.get("suppression_message") or DEFAULT_SUPPRESSION_MESSAGE
             ),
             "suppression_synonyms": synonyms,
         }

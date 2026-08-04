@@ -1009,7 +1009,7 @@
             "type": "boolean"
           },
           "suppression_message": {
-            "default": "Result pending",
+            "default": "Order received. This study is not available through the health system at this time, so no result has returned.",
             "title": "Suppression Message",
             "type": "string"
           },

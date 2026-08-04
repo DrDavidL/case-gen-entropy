@@ -220,7 +220,7 @@ a consensus, since the disagreement is the measurement.
 | Reasoning effort | `medium` | `ORACLE_REASONING_EFFORT` | Confirmed by Cory 2026-07-29 (ADR-014) |
 | Panel size | 15 | — | Roster length |
 | Concurrency | 8 | `ORACLE_CONCURRENCY` | Semaphore |
-| Stem version | `v2_revised` | `ORACLE_STEM_VERSION` | **Not yet group-approved** (ADR-014) |
+| Stem version | `v2_revised` | `ORACLE_STEM_VERSION` | Approved by Cory 2026-08-04 (ADR-014) |
 | Specialty seat | generic | `ORACLE_DEFAULT_SPECIALTY` | Overridden per case |
 
 **The proposal's `gpt-5.6` does not exist.** Checked against OpenRouter's catalogue on

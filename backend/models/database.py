@@ -21,6 +21,17 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.pool import QueuePool
 
+# What a learner reads when they order a Final Order during an encounter. Phrased as a
+# resource constraint rather than "pending" for three reasons that pull against each
+# other: it must not promise a result that never returns, it must not announce which
+# orders are being measured, and it has to stay plausible in world. The simulator holds
+# the same string in `direct-sim/backend/final_orders.py` and resolves older
+# "Result pending" rows to it, so existing cases do not need re-editing.
+DEFAULT_SUPPRESSION_MESSAGE = (
+    "Order received. This study is not available through the health system at this "
+    "time, so no result has returned."
+)
+
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -415,7 +426,16 @@ class CaseFinalOrder(SimReadyBase):
     provenance = Column(String, nullable=False, default="author_entered")
 
     suppress_results = Column(Boolean, nullable=False, default=True)
-    suppression_message = Column(Text, nullable=False, default="Result pending")
+    # What the learner reads when they order this during the encounter. Phrased as a
+    # resource constraint rather than "pending": it must not promise a result that never
+    # comes, and it must not announce which orders are being measured. See
+    # `direct-sim/backend/final_orders.py` `DEFAULT_SUPPRESSION_MESSAGE`, which resolves
+    # the older "Result pending" rows to this same wording.
+    suppression_message = Column(
+        Text,
+        nullable=False,
+        default=DEFAULT_SUPPRESSION_MESSAGE,
+    )
     # Author-supplied alternate phrasings the simulator also suppresses. Explicit and
     # conservative on purpose: a false positive degrades the simulation, a false
     # negative destroys the measurement.

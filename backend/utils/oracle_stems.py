@@ -7,10 +7,10 @@ reasons:
    under the old wording. `panel_runs.stem_version` records which one produced a given
    distribution, so a wording change is visible in the data instead of silently
    reinterpreting it.
-2. **The revision is not yet approved.** Cory's 2026-07-29 review said the current stem
-   "seems reasonable" and asked to see any proposed change before adopting it. Keeping
-   `v1_original` live and switchable by env var means honouring that is a config change,
-   not a rewrite. See `Decisions.md` ADR-014.
+2. **Both survive the approval.** Cory's 2026-07-29 review asked to see any proposed
+   change before adopting it, and approved `v2_revised` on 2026-08-04. `v1_original`
+   stays here for provenance rather than as a live alternative — a distribution stamped
+   with it must remain interpretable. See `Decisions.md` ADR-014.
 
 Set `ORACLE_STEM_VERSION` to pick one. The learner-facing and Oracle-facing renderings
 of a version are the *same item* differing only in the stated information state — that

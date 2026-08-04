@@ -376,18 +376,19 @@ case via `case_versions.oracle_specialty` and recorded per run as `panel_runs.ro
 A case that names no specialty gets a generic reading of that seat rather than a silently
 otolaryngological one. Changed before any run existed, so `ROSTER_VERSION` stays `v1`.
 
-**6. The stem revision is not yet approved.** "If something is being suggested to change what is
-currently in place, then I would want to see those changes first." The revision *is* a change, so
-it is not treated as adopted. Both wordings live in `backend/utils/oracle_stems.py` — `v1_original`
-(Alex's draft) and `v2_revised` (proposal §4.2) — rendered verbatim, selected by
-`ORACLE_STEM_VERSION`, and stamped onto every run as `panel_runs.stem_version`. `GET /oracle/stems`
-renders both side by side from the code that will actually run, so the comparison cannot drift from
-a document. Default is `v2_revised`; switching is one environment variable.
+**6. The stem revision is approved as of 2026-08-04.** Cory asked to see the change before it was
+adopted — "If something is being suggested to change what is currently in place, then I would want
+to see those changes first" — and confirmed `v2_revised` after reviewing it. Both wordings stay in
+`backend/utils/oracle_stems.py` — `v1_original` (Alex's draft) and `v2_revised` (proposal §4.2) —
+rendered verbatim, selected by `ORACLE_STEM_VERSION`, and stamped onto every run as
+`panel_runs.stem_version`. `GET /oracle/stems` renders both side by side from the code that will
+actually run, so the comparison cannot drift from a document. `v2_revised` is the default and is now
+the approved instrument; `v1_original` is retained for provenance, not as a live alternative.
 
 **Consequence, and it is the sharp one:** the stem determines what the panel is asked, so changing
-it invalidates every distribution generated before the change. **No production Oracle panel should
-run until the group confirms the wording.** Nothing is lost by waiting — no case carries Final
-Orders yet.
+it invalidates every distribution generated under the old wording. The pre-approval hold on running
+production panels is lifted. Any *future* wording change reopens this ADR and supersedes every
+distribution carrying the earlier `stem_version`.
 
 **Still unanswered:** splitting the panel across two model families (default: single family for
 v1) and scheduling the human validation panel (default: propose alongside the spring review).
