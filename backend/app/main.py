@@ -35,6 +35,8 @@ from backend.models.editing_schemas import (
     OraclePreflightResponse,
     OracleResultsResponse,
     ProposedFinalOrdersResponse,
+    SuggestSynonymsRequest,
+    SuggestedSynonymsResponse,
     FinalizeCaseResponse,
     FinalOrdersUpdateResponse,
     CaseEditRequest,
@@ -80,6 +82,7 @@ from backend.utils.authoring_store import (
     snapshot_version,
 )
 from backend.utils.build_info import get_build_info
+from backend.utils.final_orders_text import merge_synonyms
 from backend.utils.llm_service import LLMService
 from backend.utils.panel_runner import describe_settings
 from backend.utils.sim_ready_transform import (
@@ -2011,6 +2014,64 @@ def _resolve_case_version(sim_db: Session, case_id: int):
             "rebuilds the structured record from its markdown.",
         )
     return version
+
+
+@app.post("/final-orders/suggest-synonyms", response_model=SuggestedSynonymsResponse)
+async def suggest_suppression_synonyms(
+    request: SuggestSynonymsRequest, username: str = Depends(verify_credentials)
+):
+    """Suggest alternate phrasings for Final Orders. Writes nothing.
+
+    The synonym list is what the simulator's pre-model interception matches on. An order
+    with an empty list is suppressed only when the learner types its label exactly, so
+    the natural phrasings reach a real result and the rating that order exists to collect
+    becomes meaningless.
+
+    That is not hypothetical. On 2026-08-04 two of the three production cases carrying
+    Final Orders had no synonyms at all, including the case earmarked for the first
+    end-to-end test: "Anti-centromere antibody" let through "ACA", "centromere antibody"
+    and "anticentromere antibody".
+
+    Takes the author's current buffer rather than a case id, so suggestions reflect
+    unsaved edits. Existing synonyms are passed through to the model and returned in the
+    result — this never proposes removing something the author wrote.
+    """
+    orders = [o for o in request.orders if o.order_text.strip()]
+    if not orders:
+        return SuggestedSynonymsResponse(suggestions=[])
+
+    try:
+        result = await llm_service.suggest_suppression_synonyms_async(
+            [
+                {
+                    "order_text": o.order_text.strip(),
+                    "existing_synonyms": o.suppression_synonyms,
+                }
+                for o in orders
+            ]
+        )
+    except Exception as e:
+        logger.error(f"Synonym suggestion failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not suggest synonyms. The model service may be unavailable.",
+        ) from e
+
+    # Match the model's entries back to the author's orders by label, then merge rather
+    # than replace. A suggestion that drops a synonym the author deliberately added would
+    # silently widen the leak this endpoint exists to close.
+    by_label = {
+        (s.order_text or "").strip().lower(): s.synonyms for s in result.suggestions
+    }
+    suggestions = []
+    for order in orders:
+        label = order.order_text.strip()
+        merged, added = merge_synonyms(
+            label, order.suppression_synonyms, by_label.get(label.lower(), [])
+        )
+        suggestions.append({"order_text": label, "synonyms": merged, "added": added})
+
+    return SuggestedSynonymsResponse(suggestions=suggestions)
 
 
 @app.post("/final-orders/propose", response_model=ProposedFinalOrdersResponse)

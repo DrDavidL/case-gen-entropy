@@ -350,6 +350,35 @@ class FinalOrderCandidatesStructured(BaseModel):
     )
 
 
+class SuppressionSynonymSuggestionStructured(BaseModel):
+    """Alternate phrasings for one already-saved Final Order.
+
+    Separate from `FinalOrderCandidateStructured` because the orders already exist: this
+    proposes only the synonym list, for orders an author wrote before the field mattered.
+    """
+
+    order_text: str = Field(
+        description="The order these synonyms are for, copied back verbatim so the "
+        "caller can match them up."
+    )
+    synonyms: list[str] = Field(
+        description=(
+            "Alternate phrasings a learner might realistically type when ordering this "
+            "same action: abbreviations ('ACA' for anti-centromere antibody), common "
+            "word orders ('CT abdomen' and 'abdominal CT'), spelled-out and hyphen-free "
+            "variants, and typical drug or brand names for a treatment. Do NOT include "
+            "a phrasing that would also match a DIFFERENT order — bare 'CT', 'imaging' "
+            "or 'antibody' would suppress unrelated tests and damage the simulation."
+        )
+    )
+
+
+class SuppressionSynonymSuggestionsStructured(BaseModel):
+    suggestions: list[SuppressionSynonymSuggestionStructured] = Field(
+        description="One entry per order given, in the same order"
+    )
+
+
 class OracleRatingStructured(BaseModel):
     """One panelist's response.
 

@@ -2683,6 +2683,35 @@
         "title": "StructuredRecordResponse",
         "type": "object"
       },
+      "SuggestSynonymsRequest": {
+        "description": "`POST /final-orders/suggest-synonyms` \u2014 suggestions only, writes nothing.\n\nTakes the author's current buffer rather than a case id, so the suggestions apply to\nwhat is on screen including unsaved edits.",
+        "properties": {
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/FinalOrderInput"
+            },
+            "maxItems": 5,
+            "title": "Orders",
+            "type": "array"
+          }
+        },
+        "title": "SuggestSynonymsRequest",
+        "type": "object"
+      },
+      "SuggestedSynonymsResponse": {
+        "description": "Alternate phrasings per order, for the author to accept or edit.\n\nThe synonym list is what the simulator's pre-model interception matches on, so an\nempty list means the result reaches the learner and the rating for that order is\nworthless. This endpoint exists because orders authored before that was enforced have\nno synonyms at all.",
+        "properties": {
+          "suggestions": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "title": "SuggestedSynonymsResponse",
+        "type": "object"
+      },
       "SuppressionTermGroup": {
         "description": "Everything the simulator should treat as one Final Order.",
         "properties": {
@@ -3319,6 +3348,50 @@
           }
         ],
         "summary": "Propose Final Orders"
+      }
+    },
+    "/final-orders/suggest-synonyms": {
+      "post": {
+        "description": "Suggest alternate phrasings for Final Orders. Writes nothing.\n\nThe synonym list is what the simulator's pre-model interception matches on. An order\nwith an empty list is suppressed only when the learner types its label exactly, so\nthe natural phrasings reach a real result and the rating that order exists to collect\nbecomes meaningless.\n\nThat is not hypothetical. On 2026-08-04 two of the three production cases carrying\nFinal Orders had no synonyms at all, including the case earmarked for the first\nend-to-end test: \"Anti-centromere antibody\" let through \"ACA\", \"centromere antibody\"\nand \"anticentromere antibody\".\n\nTakes the author's current buffer rather than a case id, so suggestions reflect\nunsaved edits. Existing synonyms are passed through to the model and returned in the\nresult \u2014 this never proposes removing something the author wrote.",
+        "operationId": "suggest_suppression_synonyms_final_orders_suggest_synonyms_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestSynonymsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestedSynonymsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "summary": "Suggest Suppression Synonyms"
       }
     },
     "/finalize-case": {

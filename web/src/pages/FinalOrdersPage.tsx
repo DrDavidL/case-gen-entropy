@@ -22,6 +22,7 @@ import {
   proposeFinalOrders,
   putFinalOrders,
   runOracle,
+  suggestSynonyms,
   type OraclePreflight,
   type OracleResults,
   type StructuredRecord,
@@ -29,6 +30,41 @@ import {
 import { newId } from '../lib/listRows';
 
 const MAX_ORDERS = 5;
+
+/**
+ * Why synonyms exist, shown where the author is deciding whether to bother.
+ *
+ * Written as a hover rather than body copy because it answers a question most authors
+ * will not think to ask: the field looks optional and is not. It is what the simulator's
+ * pre-model interception matches on, so an empty list means the learner who types "ACA"
+ * instead of "Anti-centromere antibody" gets a real result — and the rating that order
+ * exists to collect is then worthless.
+ *
+ * `title` on a focusable element rather than a custom popover: it reaches keyboard and
+ * screen-reader users for free, and this is explanatory text, not an interaction.
+ */
+function InfoHover({ label, children }: { label: string; children: string }) {
+  return (
+    <span
+      tabIndex={0}
+      role="note"
+      aria-label={`${label}: ${children}`}
+      title={children}
+      className="ml-1 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-ink-300 text-[10px] font-semibold leading-none text-ink-500 align-middle hover:border-ink-500 hover:text-ink-700 focus:outline-none focus:ring-2 focus:ring-offset-1"
+    >
+      i
+    </span>
+  );
+}
+
+const SYNONYM_HELP =
+  'The simulator blocks a Final Order result by matching what the learner typed against ' +
+  'this list plus the order label. Anything not covered here returns a real result, and a ' +
+  'learner who has seen the result cannot meaningfully rate whether ordering it was ' +
+  'appropriate — that rating is the entire point of the item. Include abbreviations (ACA), ' +
+  'both word orders (CT abdomen / abdominal CT), hyphen-free spellings, and the drug name ' +
+  'for a treatment. Do not include a bare modality like "CT" or "antibody": that would ' +
+  'also suppress unrelated orders and degrade the case.';
 
 interface OrderRow {
   rid: string;
@@ -158,6 +194,47 @@ export default function FinalOrdersPage() {
     }
   }, [record]);
 
+  /**
+   * Fill in the phrasings a learner might actually type.
+   *
+   * Merged into what is already there, never substituted — the endpoint returns the
+   * author's own synonyms alongside the model's, so accepting a suggestion cannot drop
+   * one the author added deliberately.
+   */
+  const suggest = useCallback(async () => {
+    setBusy('synonyms');
+    setError('');
+    setNote('');
+    try {
+      const r = await suggestSynonyms(toApi(rows));
+      const byLabel = new Map(
+        ((r.suggestions ?? []) as Record<string, unknown>[]).map((s) => [
+          String(s.order_text ?? '').toLowerCase(),
+          s,
+        ]),
+      );
+      let added = 0;
+      setRows((cur) =>
+        cur.map((row) => {
+          const hit = byLabel.get(row.order_text.trim().toLowerCase());
+          if (!hit) return row;
+          const merged = (hit.synonyms as string[] | undefined) ?? [];
+          added += ((hit.added as string[] | undefined) ?? []).length;
+          return { ...row, suppression_synonyms: merged.join(', ') };
+        }),
+      );
+      setNote(
+        added > 0
+          ? `${added} phrasing(s) added. Review them, remove anything that could match a different order, then press Save.`
+          : 'No new phrasings suggested — the existing synonyms already cover what the model would add.',
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy('');
+    }
+  }, [rows]);
+
   const check = useCallback(async () => {
     setBusy('preflight');
     setError('');
@@ -245,19 +322,38 @@ export default function FinalOrdersPage() {
           <h2 className="text-sm font-semibold text-ink-800">
             Final Orders <span className="font-normal text-ink-400">({rows.length} of {MAX_ORDERS})</span>
           </h2>
-          <button
-            className="btn btn-secondary btn-sm"
-            disabled={rows.length >= MAX_ORDERS}
-            onClick={() =>
-              setRows((r) => [
-                ...r,
-                { rid: newId(), order_text: '', stem_action: '', suppression_synonyms: '', provenance: 'author_entered' },
-              ])
-            }
-          >
-            Add order
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="btn btn-secondary btn-sm"
+              disabled={busy !== '' || rows.every((r) => r.order_text.trim() === '')}
+              title="Ask the model for the phrasings a learner might type for these orders. Writes nothing."
+              onClick={suggest}
+            >
+              {busy === 'synonyms' ? 'Suggesting…' : 'Suggest synonyms'}
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              disabled={rows.length >= MAX_ORDERS}
+              onClick={() =>
+                setRows((r) => [
+                  ...r,
+                  { rid: newId(), order_text: '', stem_action: '', suppression_synonyms: '', provenance: 'author_entered' },
+                ])
+              }
+            >
+              Add order
+            </button>
+          </div>
         </div>
+
+        {rows.some((r) => r.order_text.trim() !== '' && r.suppression_synonyms.trim() === '') && (
+          <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <span className="font-medium">Some orders have no synonyms.</span> Suppression
+            matches on the order label plus this list, so a learner who phrases the order
+            any other way gets a real result — and a learner who has seen the result cannot
+            meaningfully rate whether ordering it was appropriate.
+          </div>
+        )}
 
         {rows.length === 0 && (
           <p className="text-sm text-ink-500">
@@ -297,7 +393,10 @@ export default function FinalOrdersPage() {
                   </p>
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="label">Suppression synonyms (comma separated)</label>
+                  <label className="label">
+                    Suppression synonyms (comma separated)
+                    <InfoHover label="Suppression synonyms">{SYNONYM_HELP}</InfoHover>
+                  </label>
                   <input
                     className="input"
                     value={row.suppression_synonyms}
@@ -308,6 +407,13 @@ export default function FinalOrdersPage() {
                       )
                     }
                   />
+                  {row.order_text.trim() !== '' && row.suppression_synonyms.trim() === '' && (
+                    <p className="mt-1 text-xs text-amber-700">
+                      No synonyms. This order is blocked only when a learner types its label
+                      exactly — any other phrasing returns a real result and invalidates the
+                      rating. Use <span className="font-medium">Suggest synonyms</span> above.
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="mt-2 flex items-center justify-between">

@@ -21,18 +21,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.pool import QueuePool
 
-# What a learner reads when they order a Final Order during an encounter. Phrased as a
-# resource constraint rather than "pending" for three reasons that pull against each
-# other: it must not promise a result that never returns, it must not announce which
-# orders are being measured, and it has to stay plausible in world. The simulator holds
-# the same string in `direct-sim/backend/final_orders.py` and resolves older
-# "Result pending" rows to it, so existing cases do not need re-editing.
-# Says neither "study" nor "result" on purpose: a Final Order may be a test, a consult or
-# a treatment ("Intravenous fluid therapy" is one in production), and one message has to
-# read correctly for all three.
-DEFAULT_SUPPRESSION_MESSAGE = (
-    "Order received. This is not available through the health system at this time."
-)
+from backend.utils.final_orders_text import DEFAULT_SUPPRESSION_MESSAGE
+
 
 logger = logging.getLogger(__name__)
 

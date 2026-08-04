@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from backend.models.database import DEFAULT_SUPPRESSION_MESSAGE
+from backend.utils.final_orders_text import DEFAULT_SUPPRESSION_MESSAGE
 from backend.models.schemas import CaseInput
 from backend.models.structured_outputs import SimReadyCaseDetailsStructured
 
@@ -414,6 +414,30 @@ class FinalOrdersResponse(BaseModel):
     oracle_specialty: str | None = None
     final_orders: list[dict[str, Any]] = Field(default_factory=list)
     suppression_terms: list[SuppressionTermGroup] = Field(default_factory=list)
+
+
+class SuggestSynonymsRequest(BaseModel):
+    """`POST /final-orders/suggest-synonyms` — suggestions only, writes nothing.
+
+    Takes the author's current buffer rather than a case id, so the suggestions apply to
+    what is on screen including unsaved edits.
+    """
+
+    orders: list[FinalOrderInput] = Field(
+        default_factory=list, max_length=MAX_FINAL_ORDERS
+    )
+
+
+class SuggestedSynonymsResponse(BaseModel):
+    """Alternate phrasings per order, for the author to accept or edit.
+
+    The synonym list is what the simulator's pre-model interception matches on, so an
+    empty list means the result reaches the learner and the rating for that order is
+    worthless. This endpoint exists because orders authored before that was enforced have
+    no synonyms at all.
+    """
+
+    suggestions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ProposedFinalOrdersResponse(BaseModel):

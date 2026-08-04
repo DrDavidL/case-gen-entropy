@@ -13,8 +13,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from backend.utils.final_orders_text import DEFAULT_SUPPRESSION_MESSAGE
+
 from backend.models.database import (
-    DEFAULT_SUPPRESSION_MESSAGE,
     CaseFinalOrder,
     CaseVersion,
     PanelRating,

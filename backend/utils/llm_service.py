@@ -10,6 +10,7 @@ from backend.models.structured_outputs import (
     DiagnosticFrameworkStructured,
     FeatureLikelihoodRatiosStructured,
     FinalOrderCandidatesStructured,
+    SuppressionSynonymSuggestionsStructured,
     SimReadyCaseDetailsStructured,
 )
 from backend.utils.llm_client import CASE_GEN_MODEL, build_client, provider_name
@@ -508,6 +509,96 @@ class LLMService:
             return parsed
 
         return self._call_with_retry(_call, "propose_final_orders")
+
+    def suggest_suppression_synonyms(
+        self, orders: list[dict]
+    ) -> SuppressionSynonymSuggestionsStructured:
+        """Propose alternate phrasings for Final Orders that already exist.
+
+        Suggestions only — the author accepts them by saving, exactly like proposed
+        orders.
+
+        This exists because the synonym list is what layer 1 of the simulator's
+        suppression actually matches on, and orders authored before that mattered have
+        empty lists. Measured against production on 2026-08-04: a case whose Final Order
+        is "Anti-centromere antibody" with no synonyms lets "ACA", "centromere antibody"
+        and "anticentromere antibody" through to a real result, which destroys the
+        rating that order exists to collect.
+
+        The prompt is deliberately asymmetric about the two ways to be wrong. A missing
+        synonym leaks a result and invalidates the measurement; an over-broad one
+        suppresses an unrelated order and merely degrades the simulation. Neither is
+        free, so it asks for breadth within the same action and nothing beyond it.
+
+        No case content is sent — only the order labels. There is nothing to blind
+        against here, and it keeps the call cheap enough to run on every edit.
+        """
+        listed = "\n".join(
+            f"- {o.get('order_text', '')}"
+            + (
+                f"  (already has: {', '.join(o['existing_synonyms'])})"
+                if o.get("existing_synonyms")
+                else ""
+            )
+            for o in orders
+        )
+
+        prompt = f"""
+        For each clinical order below, list the alternate phrasings a medical student
+        might realistically type when ordering that same action in a simulated EHR.
+
+        Orders:
+        {listed}
+
+        Include, where they apply:
+        - standard abbreviations and acronyms
+        - the common alternate word orders
+        - hyphen-free and spelled-out variants
+        - for a treatment, the drug or class a learner would actually name
+        - for a consult, how a learner would abbreviate the service
+
+        Two rules that matter more than coverage:
+
+        1. Every phrasing must name the SAME action. A phrasing that would also match a
+           different order is worse than a missing one: it suppresses an unrelated result
+           and the learner is told a test is unavailable for no reason.
+        2. Never return a bare modality or a bare specimen word — "CT", "MRI",
+           "ultrasound", "antibody", "imaging", "labs", "consult". These match almost
+           anything and would break unrelated orders.
+
+        If an order already has synonyms, return those plus any that are missing.
+        Return between 2 and 8 phrasings per order.
+        """
+
+        def _call():
+            response = self.client.beta.chat.completions.parse(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an emergency physician who knows how learners "
+                            "actually type orders into an EHR, including the "
+                            "abbreviations they use in practice."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format=SuppressionSynonymSuggestionsStructured,
+                temperature=0.3,
+            )
+            parsed = response.choices[0].message.parsed
+            if parsed is None:
+                raise ValueError("LLM returned empty parsed response for synonyms")
+            return parsed
+
+        return self._call_with_retry(_call, "suggest_suppression_synonyms")
+
+    async def suggest_suppression_synonyms_async(
+        self, orders: list[dict]
+    ) -> SuppressionSynonymSuggestionsStructured:
+        """Async wrapper for suggest_suppression_synonyms."""
+        return await asyncio.to_thread(self.suggest_suppression_synonyms, orders)
 
     async def propose_final_orders_async(
         self,

@@ -244,6 +244,7 @@ export type OraclePreflight = Ok<
 >;
 export type OracleResults = Ok<paths['/sim-ready/case/{case_id}/oracle']['get']>;
 export type ProposedOrders = Ok<paths['/final-orders/propose']['post']>;
+export type SuggestedSynonyms = Ok<paths['/final-orders/suggest-synonyms']['post']>;
 
 /** Unauthenticated — this is the shape the simulator reads. */
 export const getFinalOrders = (caseId: number) =>
@@ -285,6 +286,20 @@ export const proposeFinalOrders = (
       case_details: caseDetails,
       primary_diagnosis: primaryDiagnosis,
     }),
+  });
+
+/**
+ * Suggest alternate phrasings for the orders currently on screen. Writes nothing.
+ *
+ * Takes the buffer rather than a case id so unsaved edits are included. The response
+ * merges the author's existing synonyms with the model's, and reports which ones are new
+ * in `added` — nothing the author wrote is ever proposed for removal.
+ */
+export const suggestSynonyms = (orders: unknown[]) =>
+  request<SuggestedSynonyms>('/final-orders/suggest-synonyms', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ orders }),
   });
 
 /** Everything checkable before spending a model call. Costs nothing. */
