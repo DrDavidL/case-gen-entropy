@@ -7,19 +7,36 @@ Simulator-side work is tracked separately in `../direct-sim/FINAL_ORDERS_TODO.md
 
 ---
 
-## Start here — state as of 2026-07-31
+## Start here — state as of 2026-08-03
 
-**Phases 1 through 3 are live. Phase 4a and 4b are live. `ADR-020` (React SPA) is the active
-workstream. **Phase 4c is built and deployed** — all four blockers plus the editor. What it has
-not had is a human opening it in a browser.**
+**Phases 1 through 3 are live. Phase 4 is largely done: 4a, 4b, 4c and most of 4d are built and
+deployed, and the SPA is served from the backend at `/app`. Streamlit still runs alongside it —
+4e's retirement half is deliberately not done.**
+
+**On a different computer? Read `docs/new-machine.md` first** — verified clone-to-running steps,
+the secrets git cannot give you, and the four things that bite.
 
 | | | Verified how |
 |---|---|---|
-| case-gen live build | `18d426f` | `GET /` on the backend |
-| direct-sim live build | `389af1c` | `GET /api/version` on **`direct-sim-beta`** |
+| case-gen live build | `feff698` | `GET /` on the backend |
+| direct-sim live build | `67ca661` | `GET /api/version` on **`direct-sim-beta`** |
 | Shared DB revision | `0004_panel_run_item_snapshot` | `alembic current` + queried `alembic_version` |
 | `authoring` tables | all 7, including `panel_runs` / `panel_ratings` | queried `information_schema` |
 | Deploy | push to `main` in either repo | both pipelines green at the SHAs above |
+
+### What the React app can do now (all live, all at `/app`)
+
+| Screen | Route | Notes |
+|---|---|---|
+| Case list | `/app/cases` | Behind login; case reads are no longer public |
+| New case | `/app/cases/new` | Generate → review → save. Three model calls, ~1 min, writes nothing until you save |
+| Case view | `/app/cases/:id` | Rendered markdown + parity state |
+| Structured editor | `/app/cases/:id/edit` | 49 fields, 3 dynamic lists, server-rendered preview, detach confirmation |
+| Final Orders + Oracle | `/app/cases/:id/orders` | Up to 5 orders, free preflight, leak audit with hits shown, histogram results |
+| Framework + LRs | `/app/cases/:id/analysis` | Tiers, priors, LR table. **Editable in place** `ADR-007` |
+
+**Nobody has driven this in a browser except the author.** Everything is verified at the HTTP
+and data level; the visual result has never been seen by the person who wrote it.
 
 ### Open right now
 

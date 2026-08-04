@@ -11,15 +11,16 @@ declares what it covers and what it does not, so you can stop reading early.
 | Writing code | `../CLAUDE.md` (current state) **and** `../Decisions.md` (target state) |
 | About to design something | `../Decisions.md` first — the question may already be settled |
 | Picking up planned work | `../ToDos.md` |
+| **Setting up on a different computer** | `new-machine.md` |
 
 > **Important for fresh sessions.** `../CLAUDE.md` describes the system **as it exists today**.
 > `../Decisions.md` describes **where it is going**, and several accepted decisions supersede what
 > `CLAUDE.md` documents. Where they conflict, `Decisions.md` wins. Building from `CLAUDE.md`
 > alone will reproduce the architecture we are moving away from.
 >
-> **Read `../ToDos.md` "Start here" before running anything.** As of 2026-07-30 both repos carry
-> uncommitted work, and the local environment changed in a way that silently breaks LLM calls in
-> any terminal opened before the fix. Both are described there.
+> **Read `../ToDos.md` "Start here" before running anything.** As of 2026-08-03 both repos are
+> clean and fully deployed, but the local environment can still silently break every LLM call in
+> a terminal opened before the 2026-07-30 fix — see `new-machine.md` §5 for the one-line check.
 
 ## Deep reference — load on demand
 
@@ -28,6 +29,7 @@ declares what it covers and what it does not, so you can stop reading early.
 | `architecture-target.md` | Touching the case record, storage, versioning, editing, or the format toggle | LLM call mechanics; privacy |
 | `llm-panels.md` | Building or changing the Oracle, LR re-assessment, or anything that fans out to N raters | Case storage; simulator behavior |
 | `final-orders-sct.md` | Building the Final Orders authoring flow or its schema | Simulator-side suppression and rating collection |
+| `new-machine.md` | Cloning onto a new computer, or reconstructing secrets and hooks | What to work on; architecture |
 | `privacy-data-handling.md` | Touching transcripts, learner data, exports, or schema access | Case authoring |
 | `Final_Orders_Oracle_Proposal.docx` | You need the research-group-facing version, the methodology rationale in prose, Cory's original requests verbatim (App. C), or an illustration of Oracle output (App. D) | Implementation detail |
 | `Status_and_Decisions_Needed.docx` | Handing the group a status update, or checking which decisions are still open | Design rationale (see the proposal) |

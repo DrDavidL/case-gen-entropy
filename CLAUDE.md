@@ -12,6 +12,8 @@
 >
 > **Documentation map:** `docs/README.md` — routing table for deep reference, loaded on demand.
 > **Planned work:** `ToDos.md`. **Companion repo:** `../direct-sim` (simulator, shared database).
+> **Setting up on another machine:** `docs/new-machine.md` — verified clone-to-running steps,
+> the secrets git cannot give you, and the four things that bite.
 
 ## Push back before building
 
@@ -76,7 +78,10 @@ frontend/                — LEGACY Streamlit UI. Retired at Phase 4e; still the
                          Sim-ready Edit: split content editor (Clinical Dashboard / Door Chart), native
                          Streamlit inputs for simulator fields. Export: both sim DB files + in-memory LR data.
   auth.py              — Frontend auth session management
-web/                     — React SPA replacing it (ADR-020). Read-only so far: case list + case view
+web/                     — React SPA (ADR-020). Served by the backend at /app, NOT at / --
+                         GET / stays the build stamp every deploy is verified against (ADR-012).
+                         Case list, case view, structured editor, Generate, Final Orders +
+                         Oracle, framework/LR editing. Streamlit still runs alongside it
   openapi.json         — committed schema; the contract the TS types are generated from
   src/lib/types.gen.ts — GENERATED, do not hand-edit
   src/lib/api.ts       — typed client
@@ -109,7 +114,13 @@ SPA endpoints until 2026-07-31.
 - **Sim-Ready Database** (`POSTGRES_URL_SIM_READY`): Separate PostgreSQL (Neon) with its own engine. Stores to existing `case_details` table. Optional — if not configured, only beta format is available.
 - **Redis**: Used for editing sessions only (1-hour TTL). Key format: `session:{uuid}`.
 - **ORM relationships**: `Case.frameworks` and `Case.feature_lrs` use `lazy="selectin"` to avoid N+1 queries.
-- **Auth**: All mutating endpoints require HTTP Basic Auth (`Depends(verify_credentials)`). Read-only and sim-ready list endpoints do not.
+- **Auth**: HTTP Basic (`Depends(verify_credentials)`) on all mutating endpoints **and, since
+  2026-08-01, on every read that returns case content** — the case list, a case, its structured
+  record, its analysis, its Oracle results, and the beta exports. Three things stay open on
+  purpose: `GET /` (the build stamp, also the Docker healthcheck),
+  `GET /sim-ready/case/{id}/final-orders` (the simulator's read, specified unauthenticated in
+  `direct-sim/FINAL_ORDERS_TODO.md`), and the pure-render endpoints. The SPA sends Basic from its
+  own login form rather than a JWT — see `ADR-021` for why, and for the revisit triggers.
 
 ## Dual Output Format System
 
@@ -284,27 +295,30 @@ prefixed `casegen-`.
 | GET | `/session/{id}` | * | Get session data |
 | POST | `/finalize-case` | * | Save to database (routes by `output_format`) |
 | POST | `/generate-case` | * | Generate + save (legacy, beta only) |
-| GET | `/sim-ready/cases` | No | List all sim-ready cases |
-| GET | `/sim-ready/case/{id}` | No | Get a single sim-ready case |
+| GET | `/auth/check` | * | Validate a credential without acting. The SPA's login `ADR-021` |
+| POST | `/sim-ready/render-preview` | No | Render a structured record to markdown. Writes nothing |
+| GET | `/sim-ready/cases` | * | List all sim-ready cases |
+| GET | `/sim-ready/case/{id}` | * | Get a single sim-ready case |
 | PUT | `/sim-ready/case/{id}` | * | Save an edited case. `save_mode` defaults to `new_version` |
 | POST | `/sim-ready/case/{id}/copy` | * | Fork into a new simulator row + new family at v1 |
 | POST | `/sim-ready/case/{id}/adopt` | * | First `case_version` for a pre-authoring-record case |
-| GET | `/cases` | No | List all beta cases |
-| GET | `/case/{id}/output-files` | No | Export 3 JSON files (beta) |
-| GET | `/case/{id}/simulator-exports` | No | Export metadata (beta) |
-| GET | `/case/{id}/simulator-export/lr-matrix-csv` | No | LR matrix CSV (beta) |
-| GET | `/case/{id}/simulator-export/lr-matrix-excel` | No | LR matrix Excel (beta) |
-| GET | `/case/{id}/simulator-export/prior-probabilities` | No | Prior probs JSON (beta) |
-| GET | `/case/{id}/simulator-export/case-summary` | No | Case summary text (beta) |
-| GET | `/case/{id}/debug-lr-data` | No | Debug raw LR data (beta) |
+| PUT | `/sim-ready/case/{id}/analysis` | * | Edit LRs and tier priors **in place**, no new version `ADR-007` |
+| GET | `/cases` | * | List all beta cases |
+| GET | `/case/{id}/output-files` | * | Export 3 JSON files (beta) |
+| GET | `/case/{id}/simulator-exports` | * | Export metadata (beta) |
+| GET | `/case/{id}/simulator-export/lr-matrix-csv` | * | LR matrix CSV (beta) |
+| GET | `/case/{id}/simulator-export/lr-matrix-excel` | * | LR matrix Excel (beta) |
+| GET | `/case/{id}/simulator-export/prior-probabilities` | * | Prior probs JSON (beta) |
+| GET | `/case/{id}/simulator-export/case-summary` | * | Case summary text (beta) |
+| GET | `/case/{id}/debug-lr-data` | * | Debug raw LR data (beta) |
 | POST | `/final-orders/propose` | * | Candidate Final Orders. Writes nothing |
 | GET | `/sim-ready/case/{id}/final-orders` | No | Orders + suppression terms (the simulator's read) |
 | PUT | `/sim-ready/case/{id}/final-orders` | * | Replace the list on the case's latest version |
 | GET | `/sim-ready/case/{id}/oracle/preflight` | * | Blinded context + blocking leak audit |
 | POST | `/sim-ready/case/{id}/oracle/run` | * | Queue the Oracle panel (background) |
-| GET | `/sim-ready/case/{id}/oracle` | No | Distributions + item-quality flags |
+| GET | `/sim-ready/case/{id}/oracle` | * | Distributions + item-quality flags |
 | POST | `/sim-ready/case/{id}/resync` | * | Rebuild the structured record from edited markdown as a new version |
-| GET | `/sim-ready/case/{id}/structured` | No | The canonical structured record + parity state `ADR-002` |
+| GET | `/sim-ready/case/{id}/structured` | * | The canonical structured record + parity state `ADR-002` |
 | PUT | `/sim-ready/case/{id}/structured` | * | Save structured fields; renderer writes the markdown `ADR-002` |
 | GET | `/oracle/stems` | No | Both rating-stem versions, rendered side by side |
 | POST | `/oracle/render-items` | No | Render learner items for a set of orders from the active stem |
