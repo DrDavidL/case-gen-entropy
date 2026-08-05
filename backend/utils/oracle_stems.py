@@ -145,6 +145,43 @@ def _render_anchors(anchors: list[tuple[int, str]]) -> str:
     )
 
 
+# Letters whose spoken name begins with a vowel sound, so an acronym starting with one
+# takes "an": an MRI, an EKG, an ABG — but a CT, a BNP, a PET.
+_VOWEL_SOUND_LETTERS = frozenset("AEFHILMNORSX")
+
+# Words spelled with a leading vowel but pronounced with a "y" glide, which take "a".
+# "a urinalysis" is correct; "an ultrasound" is also correct, which is why this cannot be
+# decided from the letter alone.
+_CONSONANT_SOUND_PREFIXES = ("uri", "ure", "uro", "eu", "one", "unil", "unip", "univ")
+
+
+def _lower_first(label: str) -> str:
+    """Lowercase the opening word unless it is an acronym.
+
+    The lowercasing exists so the label reads naturally mid-sentence ("ordering a brain
+    MRI"). Applied blindly it mangles any label that opens with an acronym: "MRI of the
+    brain" became "mRI of the brain" and "EKG" became "eKG" in the item a learner reads.
+    """
+    first = label.split()[0]
+    stripped = re.sub(r"[^A-Za-z]", "", first)
+    if len(stripped) >= 2 and stripped.isupper():
+        return label
+    return label[0].lower() + label[1:]
+
+
+def _article_for(label: str) -> str:
+    """ "a" or "an", decided by sound rather than by spelling."""
+    first = re.sub(r"[^A-Za-z]", "", label.split()[0])
+    if not first:
+        return "a"
+    if len(first) >= 2 and first.isupper():
+        return "an" if first[0].upper() in _VOWEL_SOUND_LETTERS else "a"
+    lowered = first.lower()
+    if lowered.startswith(_CONSONANT_SOUND_PREFIXES):
+        return "a"
+    return "an" if lowered[0] in "aeiou" else "a"
+
+
 def default_action_phrase(order_text: str) -> str:
     """Derive the gerund phrase from an order label.
 
@@ -152,6 +189,12 @@ def default_action_phrase(order_text: str) -> str:
     treatments. Activations and consults ("Stroke team activation") need an explicit
     `stem_action`; the authoring UI prompts for one and shows the rendered item so the
     author reads the sentence a learner will read.
+
+    The article and the casing are chosen carefully because this text lands inside the
+    rating item, and the item is the measurement instrument (ADR-005). "ordering a
+    anti-centromere antibody" and "ordering a mRI of the brain" both reached production;
+    a visible grammatical error in an assessment item costs credibility with exactly the
+    clinicians whose ratings the instrument depends on.
     """
     label = (order_text or "").strip().rstrip(".")
     if not label:
@@ -159,9 +202,10 @@ def default_action_phrase(order_text: str) -> str:
     first = label.split()[0].lower()
     # Already a gerund — "Activating the stroke team", "Ordering a brain MRI".
     if first.endswith("ing"):
-        return label[0].lower() + label[1:]
-    article = "" if re.match(r"^(a|an|the)\b", label, re.IGNORECASE) else "a "
-    return f"ordering {article}{label[0].lower() + label[1:]}"
+        return _lower_first(label)
+    if re.match(r"^(a|an|the)\b", label, re.IGNORECASE):
+        return f"ordering {_lower_first(label)}"
+    return f"ordering {_article_for(label)} {_lower_first(label)}"
 
 
 def render_item(
