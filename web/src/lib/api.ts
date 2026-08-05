@@ -302,6 +302,29 @@ export const suggestSynonyms = (orders: unknown[]) =>
     body: JSON.stringify({ orders }),
   });
 
+export type AdoptedCase = Ok<paths['/sim-ready/case/{case_id}/adopt']['post']>;
+
+/**
+ * Give a pre-authoring-record case its first version, read from its own markdown.
+ *
+ * **Additive.** It writes a new `case_versions` row and never touches `case_details`, so
+ * nothing the simulator serves changes and no duplicate appears in the learner's case
+ * picker — which is why this is the way in rather than forking the case (`copy`).
+ *
+ * `primary_diagnosis` is required for a safety reason, not bookkeeping: the Oracle's leak
+ * audit derives its search terms from it, so an empty one makes the audit pass having
+ * checked nothing.
+ */
+export const adoptCase = (
+  caseId: number,
+  body: { primary_diagnosis: string; title?: string; description?: string },
+) =>
+  request<AdoptedCase>(`/sim-ready/case/${caseId}/adopt`, {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify(body),
+  });
+
 /** Everything checkable before spending a model call. Costs nothing. */
 export const getOraclePreflight = (caseId: number) =>
   request<OraclePreflight>(`/sim-ready/case/${caseId}/oracle/preflight`, { auth: true });

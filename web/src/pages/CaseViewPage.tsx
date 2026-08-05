@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+  adoptCase,
   getAnalysis,
   getCase,
   getStructured,
@@ -48,6 +49,20 @@ export default function CaseViewPage() {
     return () => {
       cancelled = true;
     };
+  }, [id]);
+
+  // Re-fetch after adoption. Separate from the mount effect rather than sharing it: this
+  // one is triggered by an action, so there is no unmount race to cancel and no loading
+  // state to reset — the page is already rendered and only the record changes.
+  const reload = useCallback(async () => {
+    const [c, s, a] = await Promise.all([
+      getCase(id),
+      getStructured(id),
+      getAnalysis(id),
+    ]);
+    setSimCase(c);
+    setRecord(s);
+    setAnalysis(a);
   }, [id]);
 
   const badId = !Number.isFinite(id);
@@ -132,10 +147,11 @@ export default function CaseViewPage() {
       )}
 
       {!record && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          This case has no authoring record, so it carries no version, no Final Orders,
-          and no Oracle panel. It has to be adopted before any of those work (ADR-019).
-        </div>
+        <AdoptPanel
+          caseId={id}
+          defaultTitle={simCase?.saved_name ?? ''}
+          onAdopted={reload}
+        />
       )}
 
       <section className="rounded-lg border border-ink-200 bg-white p-5">
@@ -151,6 +167,115 @@ export default function CaseViewPage() {
           <p className="text-sm text-ink-500">This case has no content.</p>
         )}
       </section>
+    </div>
+  );
+}
+
+/**
+ * The way in for a case with no authoring record.
+ *
+ * 100 of 106 production cases were in this state, and the page previously described the
+ * problem without offering the fix — the endpoint existed and nothing in the SPA called
+ * it, so every one of those cases was a dead end.
+ *
+ * Adoption is preferred over forking the case (`copy`) because it is additive:
+ * `case_details` is never written, so the learner-facing case list gains no duplicate and
+ * the transcripts already keyed to this `case_id` stay attached to it.
+ */
+function AdoptPanel({
+  caseId,
+  defaultTitle,
+  onAdopted,
+}: {
+  caseId: number;
+  defaultTitle: string;
+  onAdopted: () => Promise<void>;
+}) {
+  const [diagnosis, setDiagnosis] = useState('');
+  const [title, setTitle] = useState(defaultTitle);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async () => {
+    if (!diagnosis.trim()) return;
+    setBusy(true);
+    setError('');
+    try {
+      await adoptCase(caseId, {
+        primary_diagnosis: diagnosis.trim(),
+        title: title.trim() || undefined,
+      });
+      await onAdopted();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+      <p>
+        This case has no authoring record, so it carries no version, no Final Orders, and
+        no Oracle panel. Adopting it reads its structured record from the document below
+        and writes that as version 1 (ADR-019).
+      </p>
+      <p className="mt-2 text-xs">
+        The case itself is not modified — the simulator serves exactly the same document
+        afterwards. Two things cannot be recovered and start empty: the diagnostic
+        framework and the likelihood ratios were never stored for cases this old. Anything
+        the markdown does not state is reconstructed by the model, so read the case through
+        once afterwards.
+      </p>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="label" htmlFor="adopt-dx">
+            Primary diagnosis <span className="text-red-700">*</span>
+          </label>
+          <input
+            id="adopt-dx"
+            className="input"
+            value={diagnosis}
+            disabled={busy}
+            placeholder="e.g. Asthma exacerbation"
+            onChange={(e) => setDiagnosis(e.target.value)}
+          />
+          <p className="mt-1 text-xs text-amber-800">
+            Required, and withheld from the Oracle panel. The leak audit builds its search
+            terms from this field, so leaving it blank would let the audit pass having
+            checked nothing.
+          </p>
+        </div>
+        <div>
+          <label className="label" htmlFor="adopt-title">
+            Title
+          </label>
+          <input
+            id="adopt-title"
+            className="input"
+            value={title}
+            disabled={busy}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <p className="mt-1 text-xs text-amber-800">
+            Defaults to the case&rsquo;s current name.
+          </p>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-800">
+          {error}
+        </div>
+      )}
+
+      <button
+        className="btn btn-primary btn-sm mt-3"
+        disabled={busy || diagnosis.trim() === ''}
+        onClick={submit}
+      >
+        {busy ? 'Adopting — this takes a moment…' : 'Adopt this case'}
+      </button>
     </div>
   );
 }
