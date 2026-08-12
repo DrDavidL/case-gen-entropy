@@ -500,8 +500,12 @@ class OracleItemResult(BaseModel):
     # Recomputed from the stored per-rating rows on read, so the scoring rule can change
     # without regenerating data (ADR-006).
     aggregate: dict[str, Any] | None = None
-    # True when the run predates the current version's content hash (ADR-003).
+    # True when this distribution no longer describes what would be asked today: the case
+    # content changed, the item wording changed, or the stem changed (ADR-003, ADR-005).
     stale: bool = False
+    # Which of those it was. A bare boolean tells an author the number is unusable without
+    # telling them what to fix, and the three causes need different fixes.
+    stale_reasons: list[str] = Field(default_factory=list)
 
 
 class OracleResultsResponse(BaseModel):

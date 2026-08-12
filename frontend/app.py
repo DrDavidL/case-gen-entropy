@@ -421,6 +421,21 @@ def _run_oracle(case_id, override_key=None):
 
 _FLAG_RENDERER = {"info": st.info, "caution": st.warning, "warning": st.error}
 
+# Why a stored distribution no longer describes what would be asked today. Three causes,
+# three different fixes, so they are not collapsed into one sentence.
+_STALE_REASON_TEXT = {
+    "content_drift": "The case content has changed since this panel ran, so this "
+    "distribution describes a version the learner will not see.",
+    "item_changed": "The wording of this order has been edited since the panel ran. "
+    "Learners see the current wording and would be scored against the old panel's "
+    "answer to a different question.",
+    "stem_changed": "The rating stem has changed since this panel ran. The stem is the "
+    "measurement instrument, so these ratings are not comparable to ones collected now.",
+    "item_unverifiable": "This run does not record what it asked, so there is no way to "
+    "confirm it matches the current item.",
+    "unknown": "This distribution may no longer describe the current case.",
+}
+
 
 def _histogram_bars(aggregate):
     """Text bars for the five rating bins.
@@ -730,8 +745,12 @@ def _render_oracle_section(case_id, key_prefix="view"):
 
         if item.get("stale"):
             st.warning(
-                "**Stale.** The case content has changed since this panel ran, so this "
-                "distribution describes a version the learner will not see. Re-run it."
+                "**Stale.** "
+                + " ".join(
+                    _STALE_REASON_TEXT.get(reason, _STALE_REASON_TEXT["unknown"])
+                    for reason in (item.get("stale_reasons") or ["unknown"])
+                )
+                + " Re-run the panel."
             )
 
         if not aggregate:

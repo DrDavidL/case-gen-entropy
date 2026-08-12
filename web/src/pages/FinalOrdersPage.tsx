@@ -57,6 +57,27 @@ function InfoHover({ label, children }: { label: string; children: string }) {
   );
 }
 
+// Why a stored distribution no longer describes what would be asked today. Three causes,
+// three different fixes, so they are not collapsed into one sentence. Mirrors
+// _STALE_REASON_TEXT in frontend/app.py; the two UIs must not disagree about what a
+// stale distribution means.
+const STALE_REASON_TEXT: Record<string, string> = {
+  content_drift:
+    'The case content has changed since this panel ran, so this distribution describes a ' +
+    'version the learner will not see.',
+  item_changed:
+    'The wording of this order has been edited since the panel ran. Learners see the ' +
+    'current wording and would be scored against the old panel’s answer to a different ' +
+    'question.',
+  stem_changed:
+    'The rating stem has changed since this panel ran. The stem is the measurement ' +
+    'instrument, so these ratings are not comparable to ones collected now.',
+  item_unverifiable:
+    'This run does not record what it asked, so there is no way to confirm it matches the ' +
+    'current item.',
+  unknown: 'This distribution may no longer describe the current case.',
+};
+
 const SYNONYM_HELP =
   'The simulator blocks a Final Order result by matching what the learner typed against ' +
   'this list plus the order label. Anything not covered here returns a real result, and a ' +
@@ -579,6 +600,14 @@ export default function FinalOrdersPage() {
                       </span>
                     </span>
                   </div>
+                  {it.stale && (
+                    <p className="mb-2 text-xs text-amber-800">
+                      {(it.stale_reasons?.length ? it.stale_reasons : ['unknown'])
+                        .map((r) => STALE_REASON_TEXT[r] ?? STALE_REASON_TEXT.unknown)
+                        .join(' ')}{' '}
+                      Re-run the panel.
+                    </p>
+                  )}
                   <div className="space-y-1">
                     {['-2', '-1', '0', '1', '2'].map((k) => {
                       const v = hist[k] ?? 0;

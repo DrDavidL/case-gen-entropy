@@ -370,6 +370,21 @@ def supersede_run(db: Session, old_run_id: int, new_run_id: int) -> None:
         db.commit()
 
 
+def retire_failed_run(db: Session, failed_run_id: int, current_run_id: int) -> None:
+    """Mark a failed run as not-current, leaving an earlier usable run in place.
+
+    Same mechanic as `supersede_run` and the opposite direction: the pointer says "this
+    run is not the one to read; that one is". Needed because `latest_run` returns the
+    newest run nothing supersedes, so simply declining to retire the *previous* run is
+    not enough — the failure is newer, and it would become the current run by default and
+    hide a good distribution behind "Panel failed".
+    """
+    run = db.get(PanelRun, failed_run_id)
+    if run is not None:
+        run.superseded_by = current_run_id
+        db.commit()
+
+
 def latest_run(db: Session, item_type: str, item_ref_id: int) -> PanelRun | None:
     """The current run for an item — the newest one nothing supersedes."""
     return (

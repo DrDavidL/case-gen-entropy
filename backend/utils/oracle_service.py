@@ -406,9 +406,15 @@ async def run_oracle_for_case_version(
                     aggregates=aggregate.model_dump(),
                 )
 
-                if previous is not None:
+                transition = run_transition(previous, realized)
+                kept_previous = transition == "retire_new"
+                if transition == "supersede_previous":
                     await asyncio.to_thread(
                         store.supersede_run, db, previous.id, run.id
+                    )
+                elif kept_previous:
+                    await asyncio.to_thread(
+                        store.retire_failed_run, db, run.id, previous.id
                     )
 
                 summary["runs"].append(
@@ -418,8 +424,19 @@ async def run_oracle_for_case_version(
                         "run_id": run.id,
                         "status": "complete" if realized else "failed",
                         "realized_n": realized,
+                        # Named so the author is told the old number is still the live
+                        # one, rather than inferring it from a run that reports failure.
+                        "kept_previous_run_id": previous.id if kept_previous else None,
                     }
                 )
+                if kept_previous:
+                    logger.warning(
+                        "Oracle run %d returned no usable ratings; keeping run %d as "
+                        "current for order %r",
+                        run.id,
+                        previous.id,
+                        order.order_text,
+                    )
                 logger.info(
                     "Oracle run %d complete: order=%r realized=%d/%d",
                     run.id,
@@ -434,6 +451,14 @@ async def run_oracle_for_case_version(
                 await asyncio.to_thread(
                     store.fail_run, db, run.id, f"{type(e).__name__}: {e}"
                 )
+                # Same rule as the zero-rating path above: a run that died must not become
+                # the current one and bury a usable predecessor. Realized is zero here by
+                # construction — nothing was recorded.
+                kept_previous = run_transition(previous, 0) == "retire_new"
+                if kept_previous:
+                    await asyncio.to_thread(
+                        store.retire_failed_run, db, run.id, previous.id
+                    )
                 summary["runs"].append(
                     {
                         "final_order_id": order.id,
@@ -441,6 +466,7 @@ async def run_oracle_for_case_version(
                         "run_id": run.id,
                         "status": "failed",
                         "error": str(e)[:300],
+                        "kept_previous_run_id": previous.id if kept_previous else None,
                     }
                 )
 
@@ -453,6 +479,91 @@ async def run_oracle_for_case_version(
         return summary
     finally:
         db.close()
+
+
+def _usable(run: Any) -> bool:
+    """Did this run produce any rating at all?
+
+    A previous run that itself returned nothing is not worth protecting: keeping it in
+    front of a newer failure would resurrect an older emptiness and hide the most recent
+    truth about the item.
+    """
+    return run is not None and (run.panel_size_realized or 0) > 0
+
+
+def run_transition(previous: Any, realized: int) -> str:
+    """Which run should be the current one after a panel finishes.
+
+    Returns one of:
+
+    - `"supersede_previous"` — the new run answered; retire the old one.
+    - `"retire_new"` — the new run produced nothing and there is a usable predecessor.
+      The new run is pointed at the old one, because `latest_run` returns the newest run
+      nothing supersedes: merely declining to retire the predecessor is not enough, since
+      the failure is newer and would become current by default.
+    - `"none"` — nothing to retire either way.
+
+    Extracted from `run_oracle_for_case_version` so the rule can be tested without a
+    database. It used to be an unconditional `supersede_previous`, which meant a re-run
+    that failed outright — an OpenRouter outage is enough — buried a good distribution
+    behind "Panel failed".
+    """
+    if realized > 0:
+        return "supersede_previous" if previous is not None else "none"
+    return "retire_new" if _usable(previous) else "none"
+
+
+def _stale_reasons(run: Any, order: Any, current_context_hash: str) -> list[str]:
+    """Why a stored distribution no longer describes what would be asked today.
+
+    Three things can change under a run, and comparing only the first was a real defect:
+
+    - **`content_drift`** — the blinded context changed, so the panel rated a different
+      case record.
+    - **`item_changed`** — the *item* changed. `_identity_key` in `final_orders_store`
+      deliberately keys a Final Order on its `order_text` alone, so editing `stem_action`
+      or `stem_template` keeps the order's id and keeps this run attached. That is the
+      right call for identity and the wrong answer for freshness: `direct-sim` renders
+      learner items live from the current order (`render_learner_items`), so an author who
+      rewords an action has the learner answering the new wording and being scored against
+      the old panel's distribution — previously with no staleness shown at all.
+    - **`stem_changed`** — the stem registry default moved. The stem *is* the instrument
+      (ADR-005, ADR-014), so a distribution collected under different wording is not
+      comparable to one collected today, however unchanged the item text is.
+
+    The item is re-rendered with the stem the *run* used, so a stem change and a wording
+    change are reported separately instead of one masking the other.
+    """
+    reasons: list[str] = []
+
+    if run.blinded_context_hash != current_context_hash:
+        reasons.append("content_drift")
+
+    active_stem = oracle_stems.get_stem().version
+    if run.stem_version != active_stem:
+        reasons.append("stem_changed")
+
+    if not run.claim_hash:
+        # Nothing to compare against. "Unverifiable" must not render as "current": this
+        # number goes into an assessment, and the whole point of the check is to refuse
+        # to vouch for what it cannot confirm.
+        reasons.append("item_unverifiable")
+        return reasons
+
+    if run.stem_version not in oracle_stems.STEMS:
+        reasons.append("item_unverifiable")
+        return reasons
+
+    rendered_now = oracle_stems.render_item(
+        _action_for(order),
+        audience="oracle",
+        stem_version=run.stem_version,
+        stem_template_override=order.stem_template,
+    )
+    if panel_runner.claim_hash(rendered_now) != run.claim_hash:
+        reasons.append("item_changed")
+
+    return reasons
 
 
 def load_oracle_for_case_version(db: Session, case_version_id: int) -> dict[str, Any]:
@@ -475,10 +586,10 @@ def load_oracle_for_case_version(db: Session, case_version_id: int) -> dict[str,
             "final_order": store.serialize_final_order(order),
             "run": None,
             "aggregate": None,
-            # A run is stale exactly when it was generated against a different blinded
-            # context than the case now has (ADR-003). Computed, not stored, so an edit
-            # cannot leave a run claiming to be current.
+            # Staleness is computed, not stored, so an edit cannot leave a run claiming to
+            # be current (ADR-003). See `_stale_reasons` for what counts.
             "stale": False,
+            "stale_reasons": [],
         }
         if run is not None:
             entry["run"] = store.serialize_run(run, include_ratings=True)
@@ -493,7 +604,9 @@ def load_oracle_for_case_version(db: Session, case_version_id: int) -> dict[str,
                 version.content_structured or {},
                 suppression_terms=_all_suppression_terms(orders),
             )
-            entry["stale"] = run.blinded_context_hash != current_context.content_hash
+            reasons = _stale_reasons(run, order, current_context.content_hash)
+            entry["stale"] = bool(reasons)
+            entry["stale_reasons"] = reasons
 
         items.append(entry)
 

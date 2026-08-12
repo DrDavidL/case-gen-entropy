@@ -354,6 +354,51 @@ first real run" below.
       is invisible to the generated TypeScript. Declare one before Phase 4d builds against it —
       this is the same gap that made all four SPA endpoints emit `{}`
 
+### Two run-lifecycle defects — fixed 2026-08-12
+
+Both found while reviewing a test plan, which is the argument for the review: neither
+raises an error, and both produce a distribution that looks fine and is not.
+
+- [x] **An edited item kept its distribution and reported `stale: false`.** Identity
+      reconciliation above deliberately keys an order on its text, so editing `stem_action`
+      or `stem_template` keeps the id and keeps the run attached. Staleness compared only
+      `blinded_context_hash`, and the stem wording is not in the blinded context. Meanwhile
+      `direct-sim`'s `render_learner_items()` renders items live from the current order —
+      so the learner answered the new wording and was scored against the old panel's answer
+      to a different question. Staleness now also compares the run's `claim_hash` against
+      the item re-rendered with the run's own stem, and the active stem version against the
+      run's. Reported as `stale_reasons`: `content_drift`, `item_changed`, `stem_changed`,
+      `item_unverifiable`.
+- [x] **A failed re-run buried a good one.** `supersede_run` was called unconditionally, and
+      `latest_run` returns the newest run nothing supersedes — so a re-run that returned
+      nothing (an OpenRouter outage is enough) retired the good distribution *and* became
+      current. The author saw "Panel failed" and the numbers were gone. Now `run_transition()`
+      decides: a run with ratings supersedes its predecessor, a run with none is itself
+      retired in favour of a usable predecessor, and the response names `kept_previous_run_id`.
+
+### Still open from the same review
+
+- [ ] **`build_oracle_context()` fails open on an empty context.** It logs a warning and
+      returns an empty string; `preflight` has no empty-context check, and `audit_leak` finds
+      no leak in an empty string. A case whose `content_structured` lost its expected keys can
+      therefore reach `ready: true` and be rated on no clinical information. Fail closed, the
+      same way a blank `primary_diagnosis` already does.
+- [ ] **No unique constraint on `panel_ratings (run_id, panelist_index)`** in migration 0003
+      (`direct-sim` owns it). Duplicate rows would be counted as independent panelists by
+      `aggregate_oracle`, inflating `realized_n` and shrinking apparent disagreement.
+- [ ] **`load_oracle_for_case_version` recomputes historical aggregates with today's scoring
+      rule.** That is deliberate (ADR-006) and right for research re-analysis, and it means a
+      future change to the rule retroactively changes learner credit for results already
+      administered. Decide whether "scored as administered" needs to be frozen separately.
+- [ ] **A cross-repo schema contract test**: ephemeral Postgres, `direct-sim` checked out at a
+      pinned SHA running its real Alembic chain, this repo's ORM exercised against it, plus a
+      scheduled both-at-main run so the pin cannot hide drift forever. Deliberately not built
+      yet — the coupling exists either way, but today it surfaces at deploy against a 503 probe.
+- [ ] **Instrument validation is not a test-suite question.** Test-retest stability across
+      repeated panel runs, whether 15 personas behave as 15 sufficiently independent raters,
+      agreement with a clinician reference panel, sensitivity to a model-family change. For the
+      research group, not CI.
+
 ## Phase 3 — Oracle panel
 
 **Built 2026-07-29.** Same caveat.

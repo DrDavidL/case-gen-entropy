@@ -1408,6 +1408,13 @@
             "default": false,
             "title": "Stale",
             "type": "boolean"
+          },
+          "stale_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stale Reasons",
+            "type": "array"
           }
         },
         "required": [
