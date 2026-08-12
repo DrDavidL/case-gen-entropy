@@ -95,8 +95,16 @@ Phase 4e. `web/` is what gets served after cutover.
 **After changing any request or response model**, regenerate both or the frontend types go stale:
 
 ```bash
-uv run python scripts/dump_openapi.py && (cd web && npm run gen:types)
+uv run --isolated --python 3.11 --with-requirements requirements.txt \
+  python scripts/dump_openapi.py && (cd web && npm run gen:types)
 ```
+
+**Use that command, not a bare `uv run`.** The generated JSON Schema is version-sensitive,
+and the local `.venv` drifts from `requirements.txt` — on 2026-08-12 it held fastapi 0.129
+and pydantic 2.12 against pins of 0.104.1 and 2.5.0, which silently produced a schema that
+did not describe the deployed API. The `schema-check` workflow caught it on push, which is
+the only reason it was a wasted commit rather than a wrong contract. `--isolated
+--with-requirements` builds an ephemeral environment from the pins instead.
 
 **An endpoint the SPA consumes needs an explicit `response_model`.** Without one FastAPI documents
 it as an empty object, `openapi-typescript` emits `{}`, and every field access on the client is a

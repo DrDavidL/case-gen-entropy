@@ -308,17 +308,14 @@
       "CaseOutputFiles": {
         "properties": {
           "a_priori_probabilities_json": {
-            "additionalProperties": true,
             "title": "A Priori Probabilities Json",
             "type": "object"
           },
           "case_details_json": {
-            "additionalProperties": true,
             "title": "Case Details Json",
             "type": "object"
           },
           "feature_likelihood_ratios_json": {
-            "additionalProperties": true,
             "title": "Feature Likelihood Ratios Json",
             "type": "object"
           }
@@ -334,13 +331,11 @@
       "CasePreviewResponse": {
         "properties": {
           "case_details": {
-            "additionalProperties": true,
             "title": "Case Details",
             "type": "object"
           },
           "diagnostic_framework": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Diagnostic Framework",
@@ -348,7 +343,6 @@
           },
           "feature_likelihood_ratios": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Feature Likelihood Ratios",
@@ -412,7 +406,6 @@
           "custom_evaluation": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -424,7 +417,6 @@
           "custom_input": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -707,7 +699,11 @@
             "type": "string"
           },
           "vital_signs": {
-            "$ref": "#/components/schemas/VitalSigns",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VitalSigns"
+              }
+            ],
             "description": "Initial vital signs displayed on the door chart"
           }
         },
@@ -1052,7 +1048,6 @@
           },
           "final_orders": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Final Orders",
@@ -1134,7 +1129,6 @@
           },
           "final_orders": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Final Orders",
@@ -1378,7 +1372,6 @@
           "aggregate": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1388,14 +1381,12 @@
             "title": "Aggregate"
           },
           "final_order": {
-            "additionalProperties": true,
             "title": "Final Order",
             "type": "object"
           },
           "run": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1473,7 +1464,6 @@
           "content_parity": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1511,7 +1501,6 @@
           "leak_audit": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1565,7 +1554,6 @@
           },
           "roster": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Roster",
@@ -1585,7 +1573,6 @@
           "settings": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1844,7 +1831,6 @@
           "case_details": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1891,7 +1877,6 @@
         "properties": {
           "candidates": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Candidates",
@@ -1907,7 +1892,6 @@
           "case_details": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1920,7 +1904,6 @@
             "anyOf": [
               {
                 "items": {
-                  "additionalProperties": true,
                   "type": "object"
                 },
                 "type": "array"
@@ -1946,7 +1929,6 @@
         "properties": {
           "feature_likelihood_ratios": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Feature Likelihood Ratios",
@@ -1987,7 +1969,6 @@
           "custom_evaluation": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1999,7 +1980,6 @@
           "custom_input": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2069,12 +2049,10 @@
             "title": "Content"
           },
           "custom_evaluation": {
-            "additionalProperties": true,
             "title": "Custom Evaluation",
             "type": "object"
           },
           "custom_input": {
-            "additionalProperties": true,
             "title": "Custom Input",
             "type": "object"
           },
@@ -2120,7 +2098,11 @@
             "type": "string"
           },
           "diagnostic_reasoning": {
-            "$ref": "#/components/schemas/DiagnosticReasoning",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DiagnosticReasoning"
+              }
+            ],
             "description": "Essential HPI details to elicit, differential diagnoses, and clinical rationale"
           },
           "diagnostic_workup": {
@@ -2132,11 +2114,19 @@
             "type": "array"
           },
           "door_chart": {
-            "$ref": "#/components/schemas/DoorChart",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DoorChart"
+              }
+            ],
             "description": "Patient door chart with demographics, chief complaint, setting, and vital signs"
           },
           "family_history": {
-            "$ref": "#/components/schemas/FamilyHistory",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FamilyHistory"
+              }
+            ],
             "description": "Family medical history for parents and siblings"
           },
           "history_questions": {
@@ -2148,11 +2138,19 @@
             "type": "array"
           },
           "hpi": {
-            "$ref": "#/components/schemas/HPIDetails",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HPIDetails"
+              }
+            ],
             "description": "Structured History of Present Illness using OLDCARTS framework"
           },
           "medications_allergies": {
-            "$ref": "#/components/schemas/MedicationsAllergies",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MedicationsAllergies"
+              }
+            ],
             "description": "Current medications and known allergies"
           },
           "paragraph_summary": {
@@ -2161,11 +2159,19 @@
             "type": "string"
           },
           "past_medical_history": {
-            "$ref": "#/components/schemas/PastMedicalHistory",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PastMedicalHistory"
+              }
+            ],
             "description": "Patient's past medical history including surgeries and immunizations"
           },
           "patient_approach": {
-            "$ref": "#/components/schemas/PatientApproach",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PatientApproach"
+              }
+            ],
             "description": "Patient education, emotional state, and communication style for simulation"
           },
           "physical_exam_findings": {
@@ -2187,11 +2193,19 @@
             "type": "string"
           },
           "social_history": {
-            "$ref": "#/components/schemas/SocialHistory",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SocialHistory"
+              }
+            ],
             "description": "Comprehensive social history relevant to the case"
           },
           "teaching_points": {
-            "$ref": "#/components/schemas/TeachingPoints",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TeachingPoints"
+              }
+            ],
             "description": "Key learning objectives and educational content for the case"
           }
         },
@@ -2219,18 +2233,15 @@
       "SimReadyCasePreviewResponse": {
         "properties": {
           "case_details": {
-            "additionalProperties": true,
             "title": "Case Details",
             "type": "object"
           },
           "default_custom_evaluation": {
-            "additionalProperties": true,
             "description": "Default custom_evaluation JSON",
             "title": "Default Custom Evaluation",
             "type": "object"
           },
           "default_custom_input": {
-            "additionalProperties": true,
             "description": "Default custom_input JSON",
             "title": "Default Custom Input",
             "type": "object"
@@ -2242,7 +2253,6 @@
           },
           "diagnostic_framework": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Diagnostic Framework",
@@ -2250,7 +2260,6 @@
           },
           "feature_likelihood_ratios": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Feature Likelihood Ratios",
@@ -2308,7 +2317,6 @@
           "custom_evaluation": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2320,7 +2328,6 @@
           "custom_input": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2432,7 +2439,6 @@
           "custom_evaluation": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2444,7 +2450,6 @@
           "custom_input": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2604,7 +2609,6 @@
             "title": "Content Rendered"
           },
           "content_structured": {
-            "additionalProperties": true,
             "title": "Content Structured",
             "type": "object"
           },
@@ -2706,7 +2710,6 @@
         "properties": {
           "suggestions": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Suggestions",
@@ -2791,13 +2794,6 @@
       },
       "ValidationError": {
         "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
           "loc": {
             "items": {
               "anyOf": [

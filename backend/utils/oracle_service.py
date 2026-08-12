@@ -190,6 +190,13 @@ def preflight(
     message = parity["message"]
     if not parity["in_parity"]:
         ready, reason = False, parity["reason"]
+    elif context.is_empty:
+        # Fail closed, for the same reason a blank diagnosis does. An empty context is
+        # not a leak and not a parity break, so nothing else here catches it, and
+        # `audit_leak` passes an empty string having checked nothing — a green tick on a
+        # panel that would rate no clinical information at all.
+        ready, reason = False, "empty_blinded_context"
+        message = EMPTY_CONTEXT_MESSAGE
     elif not (version.primary_diagnosis or "").strip():
         # Fail closed. `audit_leak` derives its search terms from the diagnosis, so an
         # empty one produces an empty term list and the audit passes having checked
@@ -303,6 +310,24 @@ async def run_oracle_for_case_version(
             version.content_structured or {},
             suppression_terms=_all_suppression_terms(orders),
         )
+        if context.is_empty:
+            # Re-checked here and not left to `preflight`: this is the function that
+            # spends the calls, it is reachable as a background task with nothing but a
+            # version id, and an empty context is the one failure the leak audit below
+            # cannot see. Not overridable — the leak override covers a true hit with a
+            # benign explanation, not an audit that had nothing to read.
+            logger.error(
+                "Oracle blocked for case_version=%d: the blinded context is empty, so "
+                "the panel would rate no clinical information",
+                case_version_id,
+            )
+            return {
+                **summary,
+                "status": "blocked",
+                "reason": "empty_blinded_context",
+                "message": EMPTY_CONTEXT_MESSAGE,
+            }
+
         audit = audit_leak(context.text, version.primary_diagnosis or "")
         if not audit.passed and not leak_override_reason:
             # Blocking. Spending 75 calls on a context that names the diagnosis produces
@@ -479,6 +504,14 @@ async def run_oracle_for_case_version(
         return summary
     finally:
         db.close()
+
+
+EMPTY_CONTEXT_MESSAGE = (
+    "The blinded context is empty — this case version's structured record has none of "
+    "the fields the panel reads, so the raters would be shown no clinical information "
+    "and would still return distributions. Rebuild the structured record with "
+    "'Re-read case content' before running the panel."
+)
 
 
 def _usable(run: Any) -> bool:

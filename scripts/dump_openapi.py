@@ -8,7 +8,8 @@ changes shape on whoever regenerates next.
 
 Run after changing any request or response model:
 
-    uv run python scripts/dump_openapi.py && (cd web && npm run gen:types)
+    uv run --isolated --python 3.11 --with-requirements requirements.txt \
+      python scripts/dump_openapi.py && (cd web && npm run gen:types)
 
 **Run it against the pinned dependencies in `requirements.txt`**, which is what the
 production image installs and what CI checks. The generated JSON Schema is
@@ -18,6 +19,12 @@ version-sensitive: fastapi 0.104.1 / pydantic 2.5.0 wrap `$ref`s in `allOf` and 
 that does not describe the deployed API — which is how the committed schema came to
 disagree with production on 2026-07-31, caught by the schema-check workflow on its first
 run.
+
+**A bare `uv run` is not safe either**, which is what the old version of this line said to
+use. The project `.venv` drifts: on 2026-08-12 it held fastapi 0.129 and pydantic 2.12
+against those pins, and produced exactly the wrong-schema commit this docstring warns
+about. Caught by the workflow again. Hence `--isolated --with-requirements` above, which
+resolves from the pins rather than from whatever the venv has become.
 
 CI should run this and fail if the result is dirty, so a model change cannot land without
 its schema.

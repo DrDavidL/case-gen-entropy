@@ -376,13 +376,37 @@ raises an error, and both produce a distribution that looks fine and is not.
       decides: a run with ratings supersedes its predecessor, a run with none is itself
       retired in favour of a usable predecessor, and the response names `kept_previous_run_id`.
 
+### The rated order was visible to the panel — fixed 2026-08-12
+
+- [x] **Suppression matched substrings, so word order defeated it.** `_is_suppressed_test`
+      dropped a case's `diagnostic_workup` entry from the Oracle context when it matched a
+      Final Order — the point being that telling the panel the author called for a brain MRI
+      is a hint about whether ordering one is appropriate. Its docstring claimed "brain MRI"
+      would suppress "MRI of the brain with contrast". It did not: neither string contains
+      the other. Now matched on token containment in both directions, with substring
+      matching kept for hyphen and spacing variants.
+
+      **Seven case versions were affected in production**, all the same shape: a Final Order
+      of "brain MRI" against a workup entry of "MRI of the brain". Those panels were told the
+      case specified the exact test they were being asked to judge.
+
+- [ ] **Re-run the affected `brain MRI` panels and compare.** Their distributions are
+      confounded, not necessarily wrong — a brain MRI in a posterior-circulation case may
+      well be unanimous +2 on the merits, and one of them is exactly the 100%-agreement item
+      that showed a low-discrimination flag. Re-running under correct blinding is the only
+      way to tell the merits from the hint, and the comparison is worth keeping either way.
+
 ### Still open from the same review
 
-- [ ] **`build_oracle_context()` fails open on an empty context.** It logs a warning and
-      returns an empty string; `preflight` has no empty-context check, and `audit_leak` finds
-      no leak in an empty string. A case whose `content_structured` lost its expected keys can
-      therefore reach `ready: true` and be rated on no clinical information. Fail closed, the
-      same way a blank `primary_diagnosis` already does.
+- [x] **`build_oracle_context()` failed open on an empty context** — fixed 2026-08-12. It
+      logs a warning and returns an empty string; `preflight` had no empty-context check, and
+      `audit_leak` finds no leak in an empty string, so a case whose `content_structured` lost
+      its expected keys could reach `ready: true` and be rated on no clinical information.
+      `BlindedContext.is_empty` now blocks in both `preflight` and
+      `run_oracle_for_case_version` — the second because that is the function that spends the
+      calls and is reachable as a background task with nothing but a version id. Not
+      overridable: the leak override covers a true hit with a benign explanation, not an audit
+      that had nothing to read.
 - [ ] **No unique constraint on `panel_ratings (run_id, panelist_index)`** in migration 0003
       (`direct-sim` owns it). Duplicate rows would be counted as independent panelists by
       `aggregate_oracle`, inflating `realized_n` and shrinking apparent disagreement.

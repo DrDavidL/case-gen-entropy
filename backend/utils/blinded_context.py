@@ -115,6 +115,19 @@ class BlindedContext(BaseModel):
     # trail shows what was withheld and why.
     suppressed_tests: list[str]
 
+    @property
+    def is_empty(self) -> bool:
+        """No clinical information survived into the panel's view.
+
+        Reached when `content_structured` has none of the expected fields — a structured
+        record that a resync rebuilt badly, or one written under a field naming this code
+        no longer recognises. It is not a leak and not a parity break, so nothing else
+        catches it, and the leak audit passes an empty string having checked nothing.
+        Callers must treat this as blocking: a panel rating no clinical information still
+        returns five well-formed distributions.
+        """
+        return not self.text.strip()
+
 
 class LeakHit(BaseModel):
     term: str
@@ -154,19 +167,46 @@ def _normalize_for_match(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", " ", text.lower())
 
 
+# Filler words that carry no identity for a test name. Without removing them, "the" as a
+# token would make every entry a superset of every other.
+_TEST_NAME_FILLER = frozenset({"a", "an", "and", "for", "of", "the", "to", "with"})
+
+
+def _test_tokens(text: str) -> frozenset[str]:
+    return frozenset(_normalize_for_match(text).split()) - _TEST_NAME_FILLER
+
+
 def _is_suppressed_test(test_name: str, suppression_terms: list[str]) -> bool:
     """True when a case-specified test is one of the Final Orders being rated.
 
-    Substring matching on normalized text, in both directions: a Final Order of
-    "brain MRI" should suppress a workup entry of "MRI of the brain with contrast",
-    and vice versa.
+    Matched on **token containment**, not substrings, in both directions: a Final Order of
+    "brain MRI" suppresses a workup entry of "MRI of the brain with contrast", and vice
+    versa.
+
+    Substring matching was the original implementation and it silently failed on exactly
+    the example above, because word order differs — "brain mri" is not a substring of "mri
+    of the brain with contrast". The consequence is not cosmetic: an unsuppressed entry
+    puts the test under appropriateness review into the "Diagnostics Specified by the
+    Case" list the panel reads, which tells the raters the case author called for the very
+    thing they are being asked to judge. Suppression synonyms could paper over it, but
+    only for an author who noticed, and the blinding must not depend on that.
+
+    Substring matching is kept as well, since it catches hyphen and spacing variants that
+    tokenisation splits differently.
     """
     normalized = _normalize_for_match(test_name)
+    entry_tokens = _test_tokens(test_name)
+
     for term in suppression_terms:
         term_norm = _normalize_for_match(term)
-        if not term_norm:
+        if not term_norm.strip():
             continue
         if term_norm in normalized or normalized in term_norm:
+            return True
+        term_tokens = _test_tokens(term)
+        if not term_tokens or not entry_tokens:
+            continue
+        if term_tokens <= entry_tokens or entry_tokens <= term_tokens:
             return True
     return False
 
