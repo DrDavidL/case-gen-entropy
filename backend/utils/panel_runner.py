@@ -22,13 +22,14 @@ need the OpenAI-only Responses API.
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import time
 
 import openai
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from backend.models.structured_outputs import OracleRatingStructured
 from backend.utils import panel_roster
@@ -97,7 +98,13 @@ class PanelCallResult(BaseModel):
     value: dict | None = None
     rationale: str | None = None
     top_concerns: list[str] | None = None
-    status: str = "ok"  # ok | parse_error | refusal | api_error
+    # ok | parse_error | truncated | empty_response | refusal | content_filter | api_error
+    #
+    # These are deliberately narrower than "it failed". A truncated response and a
+    # moderation block are different findings about the panel and lead to different
+    # actions, and collapsing them into `api_error` sent one investigation looking for
+    # refusals that had never happened (2026-08-12).
+    status: str = "ok"
     error: str | None = None
     raw_response_id: str | None = None
     latency_ms: int | None = None
@@ -158,6 +165,7 @@ def _rate_once(
     }
 
     last_error: str | None = None
+    last_status: str = "api_error"
     for attempt in range(PANEL_MAX_RETRIES):
         started = time.monotonic()
         try:
@@ -226,13 +234,46 @@ def _rate_once(
                 tokens_out=tokens_out,
             )
 
+        except openai.ContentFilterFinishReasonError as e:
+            # The genuine moderation case. Retrying identical input would only reproduce
+            # it, so this is terminal — and it is recorded under its own name so nobody
+            # has to infer a refusal from a generic transport error.
+            logger.warning(
+                "Panelist %d: content filter blocked the call", panelist.index
+            )
+            return PanelCallResult(
+                **base,
+                status="content_filter",
+                error=f"{type(e).__name__}: {str(e)[:200]}",
+            )
+        except openai.LengthFinishReasonError as e:
+            last_status = "truncated"
+            last_error = f"{type(e).__name__}: {str(e)[:200]}"
+        except (ValidationError, json.JSONDecodeError) as e:
+            # The response arrived but the JSON did not survive the wire. Observed as
+            # "EOF while parsing a string" with the rating already present and the
+            # reasoning cut mid-sentence: an upstream cut, not a model that cannot
+            # produce the schema. Transient, so it retries like any other transport
+            # failure rather than costing the seat outright.
+            last_status = (
+                "truncated" if "EOF while parsing" in str(e) else "parse_error"
+            )
+            last_error = f"{type(e).__name__}: {str(e)[:200]}"
+        except (TypeError, AttributeError) as e:
+            # An empty or malformed choices/message payload; the SDK's parse helper
+            # raises from inside itself ("'NoneType' object is not iterable"). Also a
+            # transport-shaped failure, also worth another attempt.
+            last_status = "empty_response"
+            last_error = f"{type(e).__name__}: {str(e)[:200]}"
         except (
             openai.RateLimitError,
             openai.APITimeoutError,
             openai.APIConnectionError,
         ) as e:
+            last_status = "api_error"
             last_error = f"{type(e).__name__}: {str(e)[:200]}"
         except openai.APIStatusError as e:
+            last_status = "api_error"
             last_error = f"HTTP {e.status_code}: {str(e)[:200]}"
             if e.status_code < 500:
                 # 4xx will not fix itself. An unknown model id lands here, so say so
@@ -244,6 +285,7 @@ def _rate_once(
                 )
                 break
         except Exception as e:  # noqa: BLE001 — one bad panelist must not kill the panel
+            last_status = "api_error"
             last_error = f"{type(e).__name__}: {str(e)[:200]}"
             logger.exception("Panelist %d: unexpected error", panelist.index)
             break
@@ -260,7 +302,7 @@ def _rate_once(
             )
             time.sleep(wait)
 
-    return PanelCallResult(**base, status="api_error", error=last_error)
+    return PanelCallResult(**base, status=last_status, error=last_error)
 
 
 async def run_panel(
@@ -286,6 +328,20 @@ async def run_panel(
 
     results = await asyncio.gather(*(one(p) for p in roster))
     ok = sum(1 for r in results if r.status == "ok")
+    if ok < len(roster):
+        breakdown: dict[str, int] = {}
+        for r in results:
+            if r.status != "ok":
+                breakdown[r.status] = breakdown.get(r.status, 0) + 1
+                logger.warning(
+                    "Panelist %d (%s, %s) returned no rating: %s — %s",
+                    r.panelist_index,
+                    r.persona_id,
+                    r.model,
+                    r.status,
+                    r.error,
+                )
+        logger.warning("Panel short by %d: %s", len(roster) - ok, breakdown)
     logger.info(
         "Panel complete: %d/%d usable ratings (models=%s effort=%s)",
         ok,

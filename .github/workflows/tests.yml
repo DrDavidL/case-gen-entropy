@@ -1,0 +1,38 @@
+name: Tests
+
+# The suite covers the pure modules that decide what an Oracle distribution means: which
+# calls count toward the denominator, how a failed call is classified, and the rating stem
+# itself. No database, no Redis, no network — see tests/README.md for what is deliberately
+# not covered yet and what has to be refactored before it can be.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run the suite
+        # No secrets and no services are provisioned on purpose. A test that needs either
+        # does not belong in this job, and the absence is what keeps that true.
+        run: pytest -q

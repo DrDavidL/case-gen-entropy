@@ -227,6 +227,11 @@ than skipping the scan, so `brew install gitleaks` is a hard prerequisite in eit
 ## Commands
 
 ```bash
+# Tests. No database, Redis, or network needed -- see tests/README.md for the coverage
+# boundary and what has to be refactored before the rest can be tested at all.
+pip install -r requirements-dev.txt && pytest
+uv run --with pytest==9.1.1 pytest      # without installing dev deps into the venv
+
 # Local dev (requires .env, Redis, PostgreSQL)
 python start_backend.py        # FastAPI on :8000
 python start_frontend.py       # Streamlit on :8501

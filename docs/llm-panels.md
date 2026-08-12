@@ -300,10 +300,23 @@ panel_ratings
   value                   JSONB   -- {"rating": int} for the Oracle
   rationale               TEXT
   top_concerns            JSONB   -- drives the transparency signal
-  status                  ok | parse_error | refusal | api_error
+  status                  ok | parse_error | truncated | empty_response
+                          | refusal | content_filter | api_error
   error                   TEXT nullable
   raw_response_id, latency_ms, tokens_in, tokens_out, created_at
 ```
+
+**Why the null-outcome statuses are that fine-grained.** On 2026-08-12 a stroke-activation item
+came back over 13 of 15 seats while every other item on the case had all 15. The UI reported
+`{'api_error': 2}`, which reads as a refusal on a high-risk topic and prompted a search for one.
+The stored error text said otherwise: two responses had been cut off mid-string
+(`Invalid JSON: EOF while parsing a string`, with `"rating":2` already present) and one came back
+with an empty body. Transport truncation, not judgement. Worse, the generic exception handler
+treated both as terminal and skipped the remaining retries, so a transient cut cost a seat
+outright. Truncated and empty responses now retry like any other transient failure, a moderation
+block is recorded as `content_filter` under its own name, and the aggregate carries
+`excluded_calls` — seat, model, status, and plain-language reason — so the next short panel
+explains itself in the UI instead of in the database.
 
 Two details that look like oversights and are not:
 

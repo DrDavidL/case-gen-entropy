@@ -765,7 +765,23 @@ def _render_oracle_section(case_id, key_prefix="view"):
         for flag in aggregate.get("flags") or []:
             _FLAG_RENDERER.get(flag.get("severity"), st.info)(flag.get("message", ""))
 
-        if aggregate.get("null_outcomes"):
+        excluded = aggregate.get("excluded_calls") or []
+        if excluded:
+            with st.expander(
+                f"{len(excluded)} of {aggregate.get('requested_n', 0)} panelists did "
+                "not return a rating",
+                expanded=True,
+            ):
+                for call in excluded:
+                    st.markdown(
+                        f"**{call.get('persona_id') or 'unknown seat'}** "
+                        f"({call.get('model') or 'model unknown'}) — "
+                        f"`{call.get('status')}`: {call.get('explanation', '')}"
+                    )
+                    if call.get("error"):
+                        st.caption(call["error"])
+        elif aggregate.get("null_outcomes"):
+            # Runs recorded before excluded_calls existed carry only the counts.
             st.caption(f"Excluded calls: {aggregate['null_outcomes']}")
 
         with st.expander("Panelist reasoning", expanded=False):

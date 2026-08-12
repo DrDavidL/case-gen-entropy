@@ -37,6 +37,43 @@ TRANSPARENCY_THRESHOLD = 0.80
 MIN_USEFUL_N = 8
 
 
+# Plain-language gloss for each null-outcome status. The author needs to know whether a
+# missing rating means "the wire cut" or "the model declined", because those lead to
+# different actions: re-run versus rewrite the item.
+STATUS_EXPLANATIONS: dict[str, str] = {
+    "truncated": "the response was cut off before the JSON finished — a transport-level "
+    "truncation, not a judgement about the item. Re-running usually fills the seat.",
+    "parse_error": "the response did not match the required rating schema.",
+    "empty_response": "the provider returned an empty or malformed response body. "
+    "Re-running usually fills the seat.",
+    "refusal": "the model declined to answer this item.",
+    "content_filter": "the request or response was blocked by a moderation filter.",
+    "api_error": "the call failed at the API level (rate limit, timeout, or HTTP error) "
+    "after all retries.",
+    "out_of_range": "the model returned a rating outside the -2..+2 scale.",
+}
+
+
+def explain_status(status: str) -> str:
+    return STATUS_EXPLANATIONS.get(status, "the call did not return a usable rating.")
+
+
+class ExcludedCall(BaseModel):
+    """One seat that was asked and did not answer.
+
+    Kept per-panelist rather than as a bare count so the author can see whether the panel
+    lost its EM voice or one of three internists, and can tell a truncation from a
+    refusal without opening the database.
+    """
+
+    panelist_index: int | None = None
+    persona_id: str | None = None
+    model: str | None = None
+    status: str
+    explanation: str
+    error: str | None = None
+
+
 class QualityFlag(BaseModel):
     code: str
     severity: str  # info | caution | warning
@@ -47,6 +84,7 @@ class OracleAggregate(BaseModel):
     requested_n: int
     realized_n: int
     null_outcomes: dict[str, int]
+    excluded_calls: list[ExcludedCall] = []
 
     histogram: dict[str, int]
     proportions: dict[str, float]
@@ -97,6 +135,18 @@ def _names_ground_truth(concerns: Any, primary_diagnosis: str) -> bool:
     return False
 
 
+def _excluded_summary(excluded: list[ExcludedCall]) -> str:
+    """One sentence naming who dropped out and why, for the flag text."""
+    by_status: dict[str, list[str]] = {}
+    for call in excluded:
+        by_status.setdefault(call.status, []).append(call.persona_id or "unknown seat")
+    parts = [
+        f"{', '.join(seats)} — {explain_status(status)}"
+        for status, seats in sorted(by_status.items())
+    ]
+    return " ".join(parts).rstrip(".")
+
+
 def _flags(
     realized_n: int,
     proportions: dict[int, float],
@@ -104,8 +154,12 @@ def _flags(
     modal_rating: int | None,
     entropy: float | None,
     transparency_rate: float | None,
+    *,
+    requested_n: int = 0,
+    excluded: list[ExcludedCall] | None = None,
 ) -> list[QualityFlag]:
     flags: list[QualityFlag] = []
+    excluded = excluded or []
 
     if realized_n == 0:
         return [
@@ -113,9 +167,24 @@ def _flags(
                 code="no_ratings",
                 severity="warning",
                 message="No panelist returned a usable rating. Nothing can be said about "
-                "this item; re-run the panel.",
+                "this item; re-run the panel."
+                + (f" Reason: {_excluded_summary(excluded)}." if excluded else ""),
             )
         ]
+
+    # A short panel is stated whenever it happens, not only below the usability floor. A
+    # distribution over 13 of 15 seats next to one over 15 is not the same measurement,
+    # and the difference was previously visible only as a raw dict in a caption.
+    if excluded and realized_n >= MIN_USEFUL_N:
+        flags.append(
+            QualityFlag(
+                code="incomplete_panel",
+                severity="caution",
+                message=f"{len(excluded)} of {requested_n or realized_n + len(excluded)} "
+                f"panelists returned no usable rating, so this distribution is over "
+                f"{realized_n} seats. Reasons: {_excluded_summary(excluded)}.",
+            )
+        )
 
     if realized_n < MIN_USEFUL_N:
         flags.append(
@@ -218,6 +287,7 @@ def aggregate_oracle(
     """
     histogram: dict[int, int] = dict.fromkeys(RATING_BINS, 0)
     null_outcomes: dict[str, int] = {}
+    excluded: list[ExcludedCall] = []
     values: list[int] = []
     transparency_hits = 0
     per_model: dict[str, list[int]] = {}
@@ -230,6 +300,16 @@ def aggregate_oracle(
         if status != "ok" or not isinstance(rating, int) or rating not in histogram:
             key = status if status != "ok" else "out_of_range"
             null_outcomes[key] = null_outcomes.get(key, 0) + 1
+            excluded.append(
+                ExcludedCall(
+                    panelist_index=row.get("panelist_index"),
+                    persona_id=row.get("persona_id"),
+                    model=row.get("model"),
+                    status=key,
+                    explanation=explain_status(key),
+                    error=row.get("error"),
+                )
+            )
             continue
 
         histogram[rating] += 1
@@ -257,6 +337,7 @@ def aggregate_oracle(
             requested_n=requested_n,
             realized_n=0,
             null_outcomes=null_outcomes,
+            excluded_calls=excluded,
             histogram={str(k): v for k, v in histogram.items()},
             proportions={str(k): 0.0 for k in histogram},
             modal_rating=None,
@@ -268,7 +349,16 @@ def aggregate_oracle(
             sct_credit={str(k): 0.0 for k in histogram},
             by_model={},
             transparency_rate=None,
-            flags=_flags(0, {}, None, None, None, None),
+            flags=_flags(
+                0,
+                {},
+                None,
+                None,
+                None,
+                None,
+                requested_n=requested_n,
+                excluded=excluded,
+            ),
         )
 
     proportions = {k: v / realized_n for k, v in histogram.items()}
@@ -300,6 +390,7 @@ def aggregate_oracle(
         requested_n=requested_n,
         realized_n=realized_n,
         null_outcomes=null_outcomes,
+        excluded_calls=excluded,
         histogram={str(k): v for k, v in histogram.items()},
         proportions={str(k): round(v, 4) for k, v in proportions.items()},
         modal_rating=modal_rating,
@@ -320,5 +411,7 @@ def aggregate_oracle(
             modal_rating,
             entropy,
             transparency_rate,
+            requested_n=requested_n,
+            excluded=excluded,
         ),
     )

@@ -553,6 +553,14 @@ export default function FinalOrdersPage() {
               const hist = (agg?.histogram ?? {}) as Record<string, number>;
               const n = Number(agg?.realized_n ?? 0);
               const flags = (agg?.flags ?? []) as { code?: string; message?: string }[];
+              const excluded = (agg?.excluded_calls ?? []) as {
+                persona_id?: string;
+                model?: string;
+                status?: string;
+                explanation?: string;
+                error?: string;
+              }[];
+              const requested = Number(agg?.requested_n ?? 0);
               if (!it.run) return null;
               return (
                 <div key={i} className="rounded border border-ink-200 p-3">
@@ -562,7 +570,10 @@ export default function FinalOrdersPage() {
                     </span>
                     <span className="flex gap-2">
                       {it.stale && <span className="chip chip-warn">stale</span>}
-                      <span className="chip chip-neutral">n={n}</span>
+                      <span className={excluded.length ? 'chip chip-warn' : 'chip chip-neutral'}>
+                        n={n}
+                        {requested && n !== requested ? `/${requested}` : ''}
+                      </span>
                       <span className="chip chip-neutral">
                         entropy {Number(agg?.normalized_entropy ?? 0).toFixed(2)}
                       </span>
@@ -590,6 +601,26 @@ export default function FinalOrdersPage() {
                       {f.message}
                     </p>
                   ))}
+                  {excluded.length > 0 && (
+                    <details className="mt-2" open>
+                      <summary className="cursor-pointer text-xs text-ink-600">
+                        {excluded.length} of {requested || n + excluded.length} panelists
+                        returned no rating
+                      </summary>
+                      <ul className="mt-1 space-y-1">
+                        {excluded.map((c, j) => (
+                          <li key={j} className="text-xs text-ink-600">
+                            <span className="font-medium">{c.persona_id ?? 'unknown seat'}</span>
+                            {c.model ? ` (${c.model})` : ''} — <code>{c.status}</code>:{' '}
+                            {c.explanation}
+                            {c.error && (
+                              <span className="block break-all text-ink-500">{c.error}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                 </div>
               );
             })}

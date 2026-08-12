@@ -1,0 +1,7 @@
+# Test and lint tooling. Deliberately NOT in requirements.txt: the container images
+# install that file, and a test runner in a production image is surface area with no
+# purpose there.
+-r requirements.txt
+
+# Released 2026-06-19, well outside the seven-day window in the global guidelines.
+pytest==9.1.1

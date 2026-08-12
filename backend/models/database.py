@@ -549,7 +549,8 @@ class PanelRating(SimReadyBase):
     # name the ground truth, the case is diagnostically transparent.
     top_concerns = Column(JSONB, nullable=True)
 
-    # ok | parse_error | refusal | api_error. Anything but 'ok' is a null-outcome row,
+    # ok | parse_error | truncated | empty_response | refusal | content_filter |
+    # api_error. Anything but 'ok' is a null-outcome row,
     # excluded from the denominator rather than dropped.
     status = Column(String, nullable=False, default="ok")
     error = Column(Text, nullable=True)
