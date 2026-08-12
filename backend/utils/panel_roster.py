@@ -39,7 +39,23 @@ ROSTER_VERSION = "v2"
 #                                     excluding providers leaves no eligible endpoint.
 #   anthropic/claude-opus-4.7   400 — same failure, same cause.
 #   anthropic/claude-opus-4.6   works via Bedrock, ~22s per call.
-#   anthropic/claude-sonnet-5   works via Azure, ~8s per call.  <- default
+#   anthropic/claude-sonnet-5   worked via Azure, ~8s per call.
+#
+# **Re-tested 2026-08-12: `anthropic/claude-sonnet-5` no longer works at all.** Every seat
+# on it returns 400 `unsupported_request_argument: output_config.format` — the same
+# strict-schema rejection that ruled out the Opus 5 line in July, now reaching Sonnet 5 as
+# OpenRouter's ZDR-eligible routing moved. Confirmed on both endpoints: Azure rejects it,
+# and `provider.ignore: ["Azure"]` falls through to Bedrock which rejects it too
+# ("output_config.format: Extra inputs are not permitted"). There is no eligible endpoint,
+# so this is not fixable by pinning a provider. `anthropic/claude-opus-4.6` still works via
+# Bedrock and remains the only tested secondary.
+#
+# This failed silently in the sense that mattered: the panel still returned 12 of 15
+# ratings and a well-formed distribution. What it cost was not 3 opinions out of 15 — on
+# every item checked, *every* dissenting vote came from the three Anthropic seats and the
+# twelve OpenAI seats were unanimous. Losing the family turns an item with 77-80%
+# agreement into one with 100%, which is an item that cannot separate learners. Hence the
+# `model_family_silent` warning in `panel_aggregate`, which fires ahead of every other flag.
 #
 # Retention was not relaxed to reach a better model. It is a privacy control over
 # student-adjacent content, and trading it for model quality is the wrong direction.

@@ -175,9 +175,33 @@ def _flags(
     *,
     requested_n: int = 0,
     excluded: list[ExcludedCall] | None = None,
+    answering_models: set[str] | None = None,
 ) -> list[QualityFlag]:
     flags: list[QualityFlag] = []
     excluded = excluded or []
+
+    # A whole model family producing nothing is a different failure from losing seats,
+    # and a worse one. The roster is split across two families precisely because personas
+    # sharing a model share its priors (ADR-018) — on 2026-08-12 every dissenting vote in
+    # the panel came from the secondary family, so losing it did not cost three of fifteen
+    # opinions, it cost all of the measured disagreement and left items that cannot
+    # separate learners. Reported before anything else, because a distribution that looks
+    # unanimous for this reason looks exactly like genuine consensus.
+    silent_families = {c.model for c in excluded if c.model} - (
+        answering_models or set()
+    )
+    if silent_families and answering_models:
+        flags.append(
+            QualityFlag(
+                code="model_family_silent",
+                severity="warning",
+                message=f"No usable rating from {', '.join(sorted(silent_families))} — "
+                "every seat on that model failed, so this distribution comes from one "
+                "model family instead of the two the roster splits across. Disagreement "
+                "between families is the signal that split exists to capture. Fix the "
+                "model before treating this distribution as an instrument.",
+            )
+        )
 
     if realized_n == 0:
         return [
@@ -431,5 +455,6 @@ def aggregate_oracle(
             transparency_rate,
             requested_n=requested_n,
             excluded=excluded,
+            answering_models=set(by_model),
         ),
     )

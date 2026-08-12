@@ -199,3 +199,36 @@ def test_every_status_the_runner_emits_has_a_plain_language_explanation():
     ):
         explanation = explain_status(status)
         assert explanation and not explanation.startswith("the call did not return")
+
+
+def test_a_whole_model_family_falling_silent_is_flagged_above_everything_else():
+    """2026-08-12: all three `anthropic/claude-sonnet-5` seats began failing with a 400,
+    and every dissenting vote in the panel had been coming from exactly those seats. The
+    distribution collapsed to unanimity, which reads as consensus and is an outage."""
+    rows = [ok(i, 2, model="openai/gpt-5.6-sol") for i in range(12)]
+    rows += [
+        failed(i, "api_error", "HTTP 400: unsupported_request_argument")
+        for i in range(12, 15)
+    ]
+    for row in rows[12:]:
+        row["model"] = "anthropic/claude-sonnet-5"
+
+    agg = aggregate_oracle(rows, requested_n=15)
+
+    flag = next(f for f in agg.flags if f.code == "model_family_silent")
+    assert flag.severity == "warning"
+    assert "anthropic/claude-sonnet-5" in flag.message
+    assert agg.flags[0].code == "model_family_silent"
+
+
+def test_losing_seats_spread_across_both_families_is_not_a_family_outage():
+    rows = [ok(i, 2, model="openai/gpt-5.6-sol") for i in range(11)]
+    rows += [ok(i, 1, model="anthropic/claude-opus-4.6") for i in range(11, 13)]
+    rows += [failed(13, "truncated"), failed(14, "truncated")]
+    rows[13]["model"] = "openai/gpt-5.6-sol"
+    rows[14]["model"] = "anthropic/claude-opus-4.6"
+
+    codes = {f.code for f in aggregate_oracle(rows, requested_n=15).flags}
+
+    assert "model_family_silent" not in codes
+    assert "incomplete_panel" in codes

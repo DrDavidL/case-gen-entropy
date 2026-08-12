@@ -390,11 +390,43 @@ raises an error, and both produce a distribution that looks fine and is not.
       of "brain MRI" against a workup entry of "MRI of the brain". Those panels were told the
       case specified the exact test they were being asked to judge.
 
-- [ ] **Re-run the affected `brain MRI` panels and compare.** Their distributions are
-      confounded, not necessarily wrong — a brain MRI in a posterior-circulation case may
-      well be unanimous +2 on the merits, and one of them is exactly the 100%-agreement item
-      that showed a low-discrimination flag. Re-running under correct blinding is the only
-      way to tell the merits from the hint, and the comparison is worth keeping either way.
+- [x] **Re-ran the affected panels 2026-08-12** — cases 140 (v32) and 130 (v28), the only
+      two affected versions that are current. Suppression confirmed working in production
+      (`suppressed_tests: ['MRI of the brain']` in preflight, where it was empty before).
+      **The re-runs are not usable** and must be repeated once the item below is fixed: see
+      the secondary-model outage.
+
+### The secondary model is dead, and it was carrying all the disagreement — BLOCKING
+
+- [ ] **`anthropic/claude-sonnet-5` returns 400 on every call** (`unsupported_request_
+      argument: output_config.format`). Confirmed on both Azure and Bedrock, so pinning a
+      provider does not help. It worked on 2026-07-30; OpenRouter's ZDR-eligible routing has
+      moved under us. `anthropic/claude-opus-4.6` still works via Bedrock (~22s/call, tested
+      2026-08-12) and is the only tested alternative.
+
+      **This is not a 3-of-15 seat loss.** On every item checked, every dissenting vote came
+      from the three Anthropic seats while all twelve OpenAI seats were unanimous:
+
+      | run | item | OpenAI seats | Anthropic seats |
+      |-----|------|--------------|-----------------|
+      | 50 | Stroke activation | 12 × +2 | 3 × +1 |
+      | 52 | neurology consultation | 12 × +2 | 3 × +1 |
+      | 55 | stroke activation (the 77% item) | 10 × +2 | −1, +1, +1 |
+
+      So the family outage does not cost three opinions, it costs **all of the measured
+      disagreement**. Items that discriminated at 77-80% agreement now read 100% unanimous,
+      which is an item that cannot separate learners and looks like consensus while doing it.
+
+      It also answers `ADR-018`'s open question by accident: on these items the variance is
+      **model-family driven, not persona driven**. Personas within a family agreed with each
+      other completely. That is worth writing up before it is lost, and it argues the split
+      is load-bearing rather than a nice-to-have.
+
+      Decision needed: switch `ORACLE_MODEL_SECONDARY` to `anthropic/claude-opus-4.6`
+      (works, older generation, so it partly confounds "different family" with "different
+      generation" — the reason Sonnet was picked in the first place), or find another
+      current-generation model that accepts a strict schema under ZDR. Then re-run the two
+      cases above, and any case whose distributions were collected while the family was down.
 
 ### Still open from the same review
 
