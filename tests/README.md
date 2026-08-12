@@ -13,12 +13,21 @@ distribution *means*, and nothing that needs a database, Redis, or a network cal
 | `test_panel_runner.py` | Failure classification and retry. A truncated response must retry and, if it never succeeds, must not be labelled as something the model chose to do. |
 | `test_oracle_stems.py` | The instrument. Rendered item text, the anchors, and the refusal to substitute a stem the run was not labelled with. |
 
-**What is not here yet**, in rough order of what would pay off next: the content-parity
-check that blocks the Oracle (`oracle_service.check_content_parity`), the leak audit,
-`sim_ready_transform` round-tripping, and the API endpoints. Those need the database
-modules, which build engines at import time from `POSTGRES_URL`, so they need a fixture
-that fakes or injects the engine before they can be tested at all. That refactor is the
-prerequisite, not the tests.
+**What is not here yet**, and what each thing actually costs:
+
+- **The leak audit, the blinded-context builder, and the sim-ready renderers.** Nothing
+  blocks these. `create_engine()` does not connect, so importing `backend.models.database`
+  needs `POSTGRES_URL` to be *set*, not reachable — a dummy value in a conftest fixture is
+  enough. These are pure functions over text.
+- **`oracle_service.check_content_parity`.** Needs a stub session: it uses `db` for a
+  single `query().filter().first()`. Real Postgres would be better and is not worth it —
+  the schema lives in `../direct-sim` migrations, so a test database here would depend on
+  another repo's migration ordering.
+- **The API endpoints.** Genuinely blocked. `backend/app/main.py` runs
+  `Base.metadata.create_all()` and the readiness probes at module scope, so importing the
+  app connects. `scripts/dump_openapi.py` works around it by monkeypatching both before
+  the import; a TestClient fixture could do the same, or startup could move into a
+  lifespan handler. The second is the real fix and is a change to production startup.
 
 Two rules for anything added here:
 
