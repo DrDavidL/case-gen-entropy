@@ -422,11 +422,26 @@ raises an error, and both produce a distribution that looks fine and is not.
       other completely. That is worth writing up before it is lost, and it argues the split
       is load-bearing rather than a nice-to-have.
 
-      Decision needed: switch `ORACLE_MODEL_SECONDARY` to `anthropic/claude-opus-4.6`
-      (works, older generation, so it partly confounds "different family" with "different
-      generation" — the reason Sonnet was picked in the first place), or find another
-      current-generation model that accepts a strict schema under ZDR. Then re-run the two
-      cases above, and any case whose distributions were collected while the family was down.
+- [x] **Resolved 2026-08-12: secondary is now `anthropic/claude-opus-4.6`.** The whole
+      current Anthropic line is unusable under ZDR — `opus-5`, `opus-4.8` and `sonnet-5` all
+      reject `output_config.format` — and 4.6 is the only survivor. Chosen on evidence rather
+      than by elimination: tested against the real item where the secondary seats had
+      dissented, it reproduces that dissent exactly (+1, +1, +1), as do `grok-4.6` and
+      `kimi-k3`, while `gemini-3.1-pro-preview` and `glm-5.2` echo the primary. Two Anthropic
+      models a generation apart agreeing with each other and differing from the primary is
+      evidence the dissent is family-driven, which was the confound the original Sonnet
+      choice existed to avoid. Full matrix in `panel_roster.py`.
+
+- [ ] **Work out when Sonnet 5 started failing, and re-check anything rated in between.**
+      It worked on 2026-07-30 and was dead by 2026-08-12. Any run in that window may be
+      single-family and non-discriminating without saying so — `model_family_silent` only
+      exists as of today. `panel_ratings.status` and `model` per run will date it exactly.
+
+- [ ] **A model that echoes the primary is the dangerous failure, not the one that errors.**
+      A 400 is loud and now flagged. A secondary that simply agrees with everything restores
+      fifteen seats and zero discrimination, and nothing in the code can tell that from
+      genuine consensus. Whatever replaces this model next should be chosen against the same
+      real-item test, not from a capability matrix.
 
 ### Still open from the same review
 

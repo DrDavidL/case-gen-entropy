@@ -60,13 +60,31 @@ ROSTER_VERSION = "v2"
 # Retention was not relaxed to reach a better model. It is a privacy control over
 # student-adjacent content, and trading it for model quality is the wrong direction.
 #
-# Sonnet-5 is the default over the working Opus for a research reason as much as a speed
-# one: it is the same generation as the primary. A secondary that is materially weaker or
-# older confounds "different model family" with "worse model", which is precisely the
-# comparison the split exists to make cleanly. To use Opus anyway:
-#   ORACLE_MODEL_SECONDARY=anthropic/claude-opus-4.6
+# Sonnet-5 was the default over the working Opus for a research reason as much as a speed
+# one: same generation as the primary, so the contrast could not be confounded with "worse
+# model". With the whole current Anthropic line unusable that choice is no longer
+# available, and the evidence says the confound was smaller than feared — see below.
+#
+# **Candidates tested 2026-08-12** against the real blinded context and the real rating
+# item for case 140's "Stroke activation", where the primary's twelve seats had all said
+# +2 and the three secondary seats had all said +1. One call per persona, so this is
+# directional and not a study:
+#
+#   anthropic/claude-opus-4.6      +1 +1 +1   ~18s/call  <- default: reproduces the dissent
+#   x-ai/grok-4.6                  +1 +1 +1   ~33s/call
+#   moonshotai/kimi-k3             +1 +1 +1   ~19s/call
+#   deepseek/deepseek-v4-pro       err -1 -1  ~43s/call  one call failed
+#   google/gemini-3.1-pro-preview  +2 +2 +2   ~6s/call   echoes the primary; also a preview id
+#   z-ai/glm-5.2                   +2 +2 +2   ~12s/call  echoes the primary
+#
+# Opus 4.6 reproduces what Sonnet 5 gave, exactly. Two models a generation apart in the
+# same family agreeing with each other and differing from the primary is evidence the
+# dissent is **family-driven rather than generation-driven**, which is the confound the
+# original Sonnet choice existed to avoid. Note also that a model which echoes the primary
+# is not a neutral choice here: it would restore fifteen seats and none of the
+# discrimination, which is the failure that is hardest to see.
 MODEL_PRIMARY = os.getenv("ORACLE_MODEL_PRIMARY", "openai/gpt-5.6-sol")
-MODEL_SECONDARY = os.getenv("ORACLE_MODEL_SECONDARY", "anthropic/claude-sonnet-5")
+MODEL_SECONDARY = os.getenv("ORACLE_MODEL_SECONDARY", "anthropic/claude-opus-4.6")
 
 # The applicable-subspecialist seat. Cory's 2026-07-29 review asked that the fixed
 # otolaryngologist seat be generalised, since the relevant surgeon or subspecialist

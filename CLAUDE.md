@@ -204,6 +204,8 @@ Saves to 3 tables: `cases`, `diagnostic_frameworks`, `feature_likelihood_ratios`
 | `LLM_PROVIDER` | No | `openrouter` | `openrouter` or `openai` |
 | `CASE_GEN_MODEL` | No | `openai/gpt-4o-2024-08-06` | Generation-pipeline model |
 | `ORACLE_MODEL` | No | `openai/gpt-5.6-sol` | Oracle panel model. Bare `openai/gpt-5.6` does **not** exist |
+| `ORACLE_MODEL_PRIMARY` | No | `openai/gpt-5.6-sol` | 12 of the 15 seats |
+| `ORACLE_MODEL_SECONDARY` | No | `anthropic/claude-opus-4.6` | The other 3 seats, `ADR-018`. **Not a free choice**: under ZDR the whole current Anthropic line rejects the strict schema, and a model that merely *works* can still echo the primary and cost all the discrimination. See the tested matrix in `panel_roster.py` |
 | `ORACLE_REASONING_EFFORT` | No | `medium` | Confirmed by the research group, ADR-014 |
 | `ORACLE_STEM_VERSION` | No | `v2_revised` | `v1_original` or `v2_revised`. Stem approved 2026-08-04, ADR-014 |
 | `ORACLE_CONCURRENCY` | No | `8` | Panel semaphore. Sequential would take ~30 min/case |
