@@ -1380,6 +1380,17 @@
             ],
             "title": "Aggregate"
           },
+          "aggregate_as_administered": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aggregate As Administered"
+          },
           "final_order": {
             "title": "Final Order",
             "type": "object"
@@ -1394,6 +1405,11 @@
               }
             ],
             "title": "Run"
+          },
+          "scoring_rule_changed": {
+            "default": false,
+            "title": "Scoring Rule Changed",
+            "type": "boolean"
           },
           "stale": {
             "default": false,

@@ -524,7 +524,17 @@ class PanelRating(SimReadyBase):
     """One panelist's rating within a run. The source of truth for any aggregate."""
 
     __tablename__ = "panel_ratings"
-    __table_args__ = {"schema": AUTHORING_SCHEMA}
+    __table_args__ = (
+        # One row per seat per run. `aggregate_oracle` counts rows, so a duplicate is
+        # counted as an independent panelist: it inflates `realized_n`, shrinks apparent
+        # disagreement, and moves the `sct_credit` vector that becomes learner credit.
+        # Enforced in the database by `direct-sim` migration 0006 — declared here so the
+        # ORM does not describe a laxer table than the one that exists.
+        UniqueConstraint(
+            "run_id", "panelist_index", name="uq_panel_ratings_run_panelist"
+        ),
+        {"schema": AUTHORING_SCHEMA},
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     run_id = Column(

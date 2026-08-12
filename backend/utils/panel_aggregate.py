@@ -21,6 +21,21 @@ from pydantic import BaseModel
 RATING_BINS: tuple[int, ...] = (-2, -1, 0, 1, 2)
 MAX_ENTROPY = math.log2(len(RATING_BINS))  # 2.3219...
 
+# The identity of the rule that turns a histogram into learner credit.
+#
+# **Bump this whenever anything below changes what `sct_credit` returns for a given
+# histogram** — the credit formula, the bins, the null-outcome policy, or the denominator.
+# Flag thresholds are advisory and do not count.
+#
+# Why it exists: aggregates are recomputed from the per-rating rows on every read, so a
+# later change to this module retroactively changes the credit awarded for answers already
+# given. The learner side of the instrument is already frozen — `direct-sim` migration 0005
+# stores each learner's `rating` alongside `stem_version` and the rendered `item_text` — and
+# the scoring half was not, which made the two halves disagree about whether the past is
+# fixed. `complete_run` stamps this onto `panel_runs.aggregates`, so a run always carries
+# the rule it was scored under and "as administered" stays reconstructible.
+SCORING_RULE_VERSION = "sct-credit-v1"
+
 # Thresholds for the author-facing flags. Named constants because these are judgement
 # calls that the research group may well want to move, and a magic number buried in a
 # comparison is a judgement call nobody can find.
@@ -81,6 +96,9 @@ class QualityFlag(BaseModel):
 
 
 class OracleAggregate(BaseModel):
+    # Which rule produced `sct_credit`. Stored with the run, so a distribution can always
+    # say what it was scored under rather than inheriting whatever the code says today.
+    scoring_rule_version: str = SCORING_RULE_VERSION
     requested_n: int
     realized_n: int
     null_outcomes: dict[str, int]

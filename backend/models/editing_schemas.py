@@ -498,8 +498,13 @@ class OracleItemResult(BaseModel):
     final_order: dict[str, Any]
     run: dict[str, Any] | None = None
     # Recomputed from the stored per-rating rows on read, so the scoring rule can change
-    # without regenerating data (ADR-006).
+    # without regenerating data (ADR-006). The research view.
     aggregate: dict[str, Any] | None = None
+    # The snapshot written when the run completed, under the rule in force then. What a
+    # learner was actually scored against; `sct_credit` here is the credit awarded.
+    aggregate_as_administered: dict[str, Any] | None = None
+    # True when the two above can disagree because the scoring rule has moved since.
+    scoring_rule_changed: bool = False
     # True when this distribution no longer describes what would be asked today: the case
     # content changed, the item wording changed, or the stem changed (ADR-003, ADR-005).
     stale: bool = False

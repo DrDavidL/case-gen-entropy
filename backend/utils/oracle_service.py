@@ -21,7 +21,7 @@ from backend.models.database import CaseDetailSimReady, SimReadySessionLocal
 from backend.utils import final_orders_store as store
 from backend.utils import oracle_stems, panel_roster, panel_runner
 from backend.utils.blinded_context import audit_leak, build_oracle_context
-from backend.utils.panel_aggregate import aggregate_oracle
+from backend.utils.panel_aggregate import SCORING_RULE_VERSION, aggregate_oracle
 
 logger = logging.getLogger(__name__)
 
@@ -514,6 +514,21 @@ EMPTY_CONTEXT_MESSAGE = (
 )
 
 
+def scoring_rule_changed(administered: dict[str, Any] | None) -> bool:
+    """Would today's rule award different credit than the one this run was scored under?
+
+    False when the snapshot carries no `scoring_rule_version`, which is every run written
+    before 2026-08-12. That is not a shrug: `sct-credit-v1` is the first and so far only
+    rule, so an unlabelled snapshot was demonstrably produced by it. Reporting those as
+    "changed" would put a warning on all 36 existing runs and teach everyone to ignore it.
+    The moment a second rule exists, every run carries a label and the comparison is exact.
+    """
+    if not administered:
+        return False
+    stored = administered.get("scoring_rule_version")
+    return bool(stored) and stored != SCORING_RULE_VERSION
+
+
 def _usable(run: Any) -> bool:
     """Did this run produce any rating at all?
 
@@ -602,9 +617,21 @@ def _stale_reasons(run: Any, order: Any, current_context_hash: str) -> list[str]
 def load_oracle_for_case_version(db: Session, case_version_id: int) -> dict[str, Any]:
     """Current Oracle state for every Final Order on a case version.
 
-    Recomputes aggregates from the stored per-rating rows rather than returning the
-    convenience copy on `panel_runs.aggregates`, so a change to the scoring rule takes
-    effect without regenerating any model output.
+    Returns **two** aggregates per item, deliberately:
+
+    - `aggregate` — recomputed from the stored per-rating rows under today's scoring rule,
+      so a change to that rule takes effect without regenerating any model output
+      (ADR-006). This is the research view.
+    - `aggregate_as_administered` — the snapshot written when the run completed, under the
+      rule in force at the time. This is the view a learner was scored against.
+
+    They were the same object until 2026-08-12, and only the recomputed one was returned.
+    That is correct for re-analysis and wrong for assessment: `sct_credit` is what converts
+    a learner's answer into partial credit, so any later change to the rule silently
+    restates the credit for answers already given, with no record of what was actually
+    awarded. The learner half of the instrument is already frozen (`direct-sim` stores each
+    rating with its `stem_version` and rendered `item_text`); this makes the scoring half
+    match. `scoring_rule_changed` says when the two views can disagree.
     """
     version = db.get(store.CaseVersion, case_version_id)
     if version is None:
@@ -619,6 +646,8 @@ def load_oracle_for_case_version(db: Session, case_version_id: int) -> dict[str,
             "final_order": store.serialize_final_order(order),
             "run": None,
             "aggregate": None,
+            "aggregate_as_administered": None,
+            "scoring_rule_changed": False,
             # Staleness is computed, not stored, so an edit cannot leave a run claiming to
             # be current (ADR-003). See `_stale_reasons` for what counts.
             "stale": False,
@@ -632,6 +661,10 @@ def load_oracle_for_case_version(db: Session, case_version_id: int) -> dict[str,
                 requested_n=run.panel_size_requested,
                 primary_diagnosis=version.primary_diagnosis or "",
             ).model_dump()
+
+            administered = run.aggregates if isinstance(run.aggregates, dict) else None
+            entry["aggregate_as_administered"] = administered
+            entry["scoring_rule_changed"] = scoring_rule_changed(administered)
 
             current_context = build_oracle_context(
                 version.content_structured or {},
