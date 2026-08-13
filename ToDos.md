@@ -432,10 +432,17 @@ raises an error, and both produce a distribution that looks fine and is not.
       evidence the dissent is family-driven, which was the confound the original Sonnet
       choice existed to avoid. Full matrix in `panel_roster.py`.
 
-- [ ] **Work out when Sonnet 5 started failing, and re-check anything rated in between.**
-      It worked on 2026-07-30 and was dead by 2026-08-12. Any run in that window may be
-      single-family and non-discriminating without saying so — `model_family_silent` only
-      exists as of today. `panel_ratings.status` and `model` per run will date it exactly.
+- [x] **Dated 2026-08-12: no research data was affected.** Every run from the first
+      (2026-07-31 04:17 UTC) through run 60 (2026-08-12 03:23 UTC) recorded 3 of 3 usable
+      secondary ratings. The first failure is run 61 at 2026-08-12 23:12 UTC. The outage
+      window is therefore under 20 hours, and the only runs inside it are the six re-runs
+      triggered while diagnosing this — all six are now superseded by full 15-seat runs
+      (67-72) on `claude-opus-4.6`. Nothing else needs re-running for the model outage.
+
+      One live run remains below full strength: **run 55**, `stroke activation`, n=13 at
+      2026-08-12 03:20 UTC. That is the truncation defect, not the model outage, and it is
+      the item from the original screenshot. Worth a re-run now that truncated calls retry,
+      though 13 of 15 is above the usability floor and the distribution stands.
 
 - [ ] **A model that echoes the primary is the dangerous failure, not the one that errors.**
       A 400 is loud and now flagged. A secondary that simply agrees with everything restores
