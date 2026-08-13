@@ -106,3 +106,8 @@ web/dist/
 # `build` script runs first. Deliberately not committed: the schema is the contract, and
 # a checked-in copy of its output is one more thing that can silently disagree with it.
 web/src/lib/types.gen.ts
+
+# Bake-off outputs (scripts/model_bakeoff.py). The script is the reproducible artifact;
+# its results are a dated experiment whose rating sheets go to the research group, not
+# into the repo. Re-run it rather than reading a stale copy.
+bakeoff-output/
