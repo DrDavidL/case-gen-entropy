@@ -196,8 +196,8 @@ def _flags(
                 code="model_family_silent",
                 severity="warning",
                 message=f"No usable rating from {', '.join(sorted(silent_families))} — "
-                "every seat on that model failed, so this distribution comes from one "
-                "model family instead of the two the roster splits across. Disagreement "
+                "every seat on that model failed, so this distribution is missing a "
+                "model family the roster deliberately splits across. Disagreement "
                 "between families is the signal that split exists to capture. Fix the "
                 "model before treating this distribution as an instrument.",
             )
