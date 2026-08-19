@@ -307,6 +307,32 @@ class SimReadyCaseDetailsStructured(BaseModel):
     )
 
 
+class SimReadyCaseRecord(SimReadyCaseDetailsStructured):
+    """The stored case record: everything the generator produces, plus author decisions.
+
+    Separate from `SimReadyCaseDetailsStructured` because that model is an OpenAI strict
+    structured-output schema, and every property in a strict schema is required. A field
+    added there is a field the generating model must fill in, so `oracle_withheld_findings`
+    would arrive populated with the model's guess about which findings to hide from the
+    Oracle. That is an author's judgement about the measurement, not the generator's, and a
+    default the author never chose is the kind of thing nobody notices is wrong.
+
+    Generation returns the base model. Everything that reads or writes a saved record --
+    the structured editor, the render preview -- uses this one.
+    """
+
+    oracle_withheld_findings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Examination maneuvers and diagnostics the Oracle panel must not see, named "
+            "as the record names them. Findings that match are dropped from the blinded "
+            "context, and the preflight audit blocks the run if a named term survives "
+            "anywhere in the assembled context. Human expert raters must be given the "
+            "same blinded context, or the two rating sets are not comparable."
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Final Orders (SCT) and the Oracle panel
 # ---------------------------------------------------------------------------

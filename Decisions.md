@@ -823,3 +823,58 @@ is visible in the data. Re-running the Oracle on cases that already carry `v2` d
 deliberate act, not a backfill.
 
 **See:** `ADR-005`, `ADR-018`, `scripts/model_bakeoff.py`, `backend/utils/panel_roster.py`
+
+---
+
+## ADR-023 — Definitive vestibular testing is withheld from the Oracle, and must be withheld from human raters too.
+
+**Status:** ACCEPTED (2026-08-19) · BUILT · Extends `ADR-005`
+
+**Context.** Alex reported on 2026-08-18 that the panel rating the four dizziness OSCE cases (139,
+140, 150, 151) could not see the HINTS exam or the Dix-Hallpike, because she had put those results
+in the case's additional-results section rather than in the structured exam fields. She proposed
+keeping it that way: it "introduces more uncertainty management and forces the panel to commit to
+what their threshold for further testing is." Cory agreed and added the condition that makes it a
+decision rather than an accident — the same information must then be withheld from the human expert
+raters, or the two rating sets are not comparable. He also noted the methodology's wider value: it
+models incomplete information as it actually occurs, such as a patient with chronic back pain who
+cannot participate in a Dix-Hallpike, and post-hoc chart review of diagnostic error.
+
+The problem was not the behaviour, which was already what the group wanted. The problem was that it
+held only because of where one author happened to type the findings. `build_oracle_context` reads
+`physical_exam_findings` and `physical_exam_findings_text`; a future author entering a Dix-Hallpike
+in either would have un-blinded the panel with no error, no warning, and a distribution that looks
+exactly as valid as the ones before it. That is the `ADR-012` shape — a check that passes while
+verifying the wrong thing — applied to the instrument itself.
+
+**Decision.** Withholding is declared per case, not inferred from data entry.
+`oracle_withheld_findings` on the structured record names the maneuvers and tests the panel must not
+see. Matching itemised exam findings and workup entries are dropped during construction, and the
+preflight audit searches the assembled context for the same terms and **blocks** if one survives.
+
+Three properties are load-bearing:
+
+- **The finding goes with the maneuver name.** Dropping the result and keeping the label would still
+  tell the panel the case turns on a Dix-Hallpike, which is most of what withholding prevents.
+- **A hit is not overridable**, unlike a diagnosis leak. The leak override covers a true match with a
+  benign explanation, which a human can judge. There is no equivalent reading here: the author is
+  the person who declared this finding off-limits, so an override would let one screen quietly undo
+  the other.
+- **The requested terms are echoed back alongside the matched ones.** A term that matches nothing
+  reads as blinding and does nothing, and that gap is invisible unless it is shown.
+
+Learners are unaffected. They still get HINTS and Dix-Hallpike, on request — which is the point of
+the exam-specificity gate landing in the same change.
+
+**What this costs.** Withholding changes `blinded_context_hash`, so existing panel runs for the case
+go stale and must be re-run. That is correct rather than unfortunate: a run made against a context
+that included the Dix-Hallpike measured a different thing. It also means the human rater packet is
+now a dependency of this decision rather than a separate workstream — whatever is withheld here has
+to be withheld there, and nothing in the code can enforce that.
+
+**Consequences.** The four dizziness cases need `oracle_withheld_findings` set explicitly rather
+than relying on placement, and their panels re-run afterwards. Human expert review, which Cory wants
+to start before the end of August 2026, must be built against the same blinded context the panel
+reads.
+
+**See:** `ADR-005`, `ADR-014`, `ADR-017`, `backend/utils/blinded_context.py`

@@ -75,6 +75,10 @@ export default function CaseEditPage() {
   const [record, setRecord] = useState<StructuredRecord | null>(null);
   const [draft, setDraft] = useState<Record<string, unknown>>({});
   const [lists, setLists] = useState<Record<string, Row[]>>({});
+  // One term per line. A textarea rather than a repeating row editor because the value is
+  // a flat list of names, and because an author setting this is transcribing two or three
+  // maneuvers off a decision, not building a structure.
+  const [withheld, setWithheld] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState('');
@@ -95,6 +99,11 @@ export default function CaseEditPage() {
         const next: Record<string, Row[]> = {};
         for (const l of LISTS) next[l.key] = toRows(content[l.key], l.a.key, l.b.key);
         setLists(next);
+        setWithheld(
+          Array.isArray(content.oracle_withheld_findings)
+            ? (content.oracle_withheld_findings as string[]).join('\n')
+            : ''
+        );
       })
       .catch((e: Error) => !cancelled && setError(e.message))
       .finally(() => !cancelled && setLoading(false));
@@ -107,8 +116,12 @@ export default function CaseEditPage() {
   const payload = useMemo((): StructuredContent => {
     const out: Record<string, unknown> = { ...draft };
     for (const l of LISTS) out[l.key] = toApi(lists[l.key] ?? [], l.a.key, l.b.key);
+    out.oracle_withheld_findings = withheld
+      .split('\n')
+      .map((t) => t.trim())
+      .filter(Boolean);
     return out as StructuredContent;
-  }, [draft, lists]);
+  }, [draft, lists, withheld]);
 
   // Server-rendered preview, debounced. Typing in a 49-field form would otherwise fire a
   // request per keystroke; the endpoint is cheap but not free, and a preview that lags
@@ -267,6 +280,29 @@ export default function CaseEditPage() {
                 labelB={l.b.label}
               />
             ))}
+
+            <div className="card p-4">
+              <h3 className="mb-1 text-sm font-semibold text-ink-800">
+                Withheld from the Oracle panel
+              </h3>
+              <p className="mb-2 text-xs text-ink-500">
+                One maneuver or test per line. Matching entries are dropped from the
+                blinded context the panel rates, and the run refuses if a named term
+                survives anywhere in it. Learners are unaffected — they still see these.
+              </p>
+              <p className="mb-2 text-xs text-ink-500">
+                Two things to know before using this. Any existing Oracle results for this
+                case go stale, because a panel that saw a different context measured a
+                different thing. And whatever you withhold here must also be withheld from
+                the human expert raters, or the two rating sets cannot be compared.
+              </p>
+              <textarea
+                className="input h-24 w-full font-mono text-xs"
+                value={withheld}
+                onChange={(e) => setWithheld(e.target.value)}
+                placeholder={'Dix-Hallpike\nHINTS'}
+              />
+            </div>
           </Anchor>
 
           <Anchor id="sec-reasoning">

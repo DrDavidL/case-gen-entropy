@@ -134,3 +134,119 @@ def test_an_unrelated_test_is_still_shown_to_the_panel(workup_entry, order_text)
 
     assert context.suppressed_tests == []
     assert workup_entry.lower() in context.text.lower()
+
+
+# --- Author-designated withholding (research group decision, 2026-08-19) ------------
+#
+# Cory's vote, seconded by Alex: Dix-Hallpike and HINTS stay away from the Oracle panel on
+# the dizziness cases, so the panel has to commit to a threshold for further testing rather
+# than reason from a near-definitive result. Until this existed the withholding held only
+# because those findings happened to be stored somewhere `build_oracle_context` does not
+# read, which is a property of one author's data entry rather than of the system.
+
+VESTIBULAR_CASE = {
+    "door_chart": {"age": "61", "chief_complaint": "Room-spinning dizziness"},
+    "physical_exam_findings": [
+        {"examination": "Gait", "findings": "Unsteady, wide-based"},
+        {"examination": "Dix-Hallpike", "findings": "Positive, right posterior canal"},
+        {"examination": "HINTS exam", "findings": "Peripheral pattern"},
+    ],
+    "diagnostic_workup": [
+        {"test": "Brain MRI", "rationale": "rule out infarct"},
+        {"test": "Dix-Hallpike maneuver", "rationale": "confirm canalithiasis"},
+    ],
+    "oracle_withheld_findings": ["Dix-Hallpike", "HINTS"],
+}
+
+
+def test_a_withheld_maneuver_is_dropped_from_the_itemised_exam():
+    context = build_oracle_context(VESTIBULAR_CASE)
+
+    assert "Dix-Hallpike" not in context.text
+    assert "HINTS" not in context.text
+    # The findings that were not withheld still reach the panel.
+    assert "Unsteady, wide-based" in context.text
+
+
+def test_the_finding_goes_with_the_maneuver_name():
+    """Dropping the result but keeping the label would still give the game away.
+
+    "Dix-Hallpike: (withheld)" tells the panel the case turns on a Dix-Hallpike, which is
+    most of what withholding it was meant to prevent.
+    """
+    context = build_oracle_context(VESTIBULAR_CASE)
+
+    assert "posterior canal" not in context.text
+    assert "Peripheral pattern" not in context.text
+
+
+def test_withholding_also_covers_the_available_tests_list():
+    context = build_oracle_context(VESTIBULAR_CASE)
+
+    assert "Dix-Hallpike maneuver" not in context.text
+    assert "Brain MRI" in context.text
+
+
+def test_what_was_withheld_is_reported_rather_than_asserted():
+    context = build_oracle_context(VESTIBULAR_CASE)
+
+    withheld = " ".join(context.withheld_findings)
+    assert "Dix-Hallpike" in withheld
+    assert "HINTS" in withheld
+
+
+def test_no_withheld_list_changes_nothing():
+    case = {k: v for k, v in VESTIBULAR_CASE.items() if k != "oracle_withheld_findings"}
+    context = build_oracle_context(case)
+
+    assert "Dix-Hallpike" in context.text
+    assert context.withheld_findings == []
+
+
+def test_withholding_changes_the_context_hash():
+    """Existing panel runs must go stale, not silently carry over.
+
+    A run made against a context that included Dix-Hallpike is a different measurement
+    from one made without it. `blinded_context_hash` is what the staleness check compares,
+    so this is the mechanism that forces the re-run.
+    """
+    without = build_oracle_context(
+        {k: v for k, v in VESTIBULAR_CASE.items() if k != "oracle_withheld_findings"}
+    )
+    with_ = build_oracle_context(VESTIBULAR_CASE)
+
+    assert without.content_hash != with_.content_hash
+
+
+def test_a_withheld_term_surviving_in_free_text_fails_the_audit():
+    """The construction step cannot filter prose, so the audit has to catch it.
+
+    `physical_exam_findings_text` is one narrative paragraph. A maneuver named inside it
+    is not removable without editing the author's words, so the run refuses instead.
+    """
+    case = {
+        **VESTIBULAR_CASE,
+        "physical_exam_findings_text": (
+            "Alert and oriented. Dix-Hallpike reproduces upbeating torsional nystagmus."
+        ),
+    }
+    context = build_oracle_context(case)
+    audit = audit_leak(
+        context.text,
+        "benign paroxysmal positional vertigo",
+        withheld_terms=case["oracle_withheld_findings"],
+    )
+
+    assert not audit.passed
+    assert any(hit.kind == "withheld_finding" for hit in audit.hits)
+
+
+def test_a_clean_context_passes_the_withheld_audit():
+    context = build_oracle_context(VESTIBULAR_CASE)
+    audit = audit_leak(
+        context.text,
+        "benign paroxysmal positional vertigo",
+        withheld_terms=VESTIBULAR_CASE["oracle_withheld_findings"],
+    )
+
+    assert not [h for h in audit.hits if h.kind == "withheld_finding"]

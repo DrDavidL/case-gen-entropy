@@ -114,6 +114,9 @@ class BlindedContext(BaseModel):
     # Final Order text filtered out of the available-tests list, recorded so the audit
     # trail shows what was withheld and why.
     suppressed_tests: list[str]
+    # Entries dropped because the author named them in `oracle_withheld_findings`. Recorded
+    # for the same reason: blinding that cannot be inspected is blinding that is asserted.
+    withheld_findings: list[str] = []
 
     @property
     def is_empty(self) -> bool:
@@ -131,7 +134,7 @@ class BlindedContext(BaseModel):
 
 class LeakHit(BaseModel):
     term: str
-    kind: str  # full_diagnosis | token | synonym
+    kind: str  # full_diagnosis | token | synonym | withheld_finding
     section: str
     snippet: str
 
@@ -222,14 +225,35 @@ def build_oracle_context(
     are dropped from the available-tests list: telling the panel that the case author
     specified a brain MRI is itself a hint about whether ordering one is appropriate.
 
+    `case_details["oracle_withheld_findings"]` is the author's separate decision about what
+    the panel must not see even though it is neither the diagnosis nor a rated item. The
+    dizziness OSCE cases are the motivating instance: the research group decided on
+    2026-08-19 to keep Dix-Hallpike and HINTS away from the panel, so the panel has to
+    commit to a threshold for further testing rather than reason from a near-definitive
+    result the learner has to earn. Until now that held only because Alex happened to put
+    those findings somewhere the builder does not read — true by placement, which is
+    exactly the kind of thing that stops being true when someone edits a case.
+
+    Two consequences worth stating plainly. Withholding changes `content_hash`, so existing
+    panel runs go stale and must be re-run; that is correct, because a run made against a
+    different view is a different measurement. And whatever is withheld here must also be
+    withheld from the human expert raters — Cory made that a condition of the decision, and
+    two rating sets built on different information are not comparable.
+
     Tolerates both the sim-ready and legacy structured shapes, and tolerates missing
     fields — a thin context is a visible problem, whereas raising here would block
     authoring on a field the generator happened not to fill.
     """
     suppression_terms = suppression_terms or []
+    withheld_terms = [
+        term
+        for term in (case_details.get("oracle_withheld_findings") or [])
+        if isinstance(term, str) and term.strip()
+    ]
     sections: list[str] = []
     included: list[str] = []
     suppressed: list[str] = []
+    withheld: list[str] = []
 
     door = case_details.get("door_chart")
     if isinstance(door, dict):
@@ -355,13 +379,19 @@ def build_oracle_context(
         )
         included.append("history_questions (question + expected answer)")
 
-    # Itemised exam findings. Included; the *maneuver* and its result are patient data.
+    # Itemised exam findings. Included; the *maneuver* and its result are patient data —
+    # unless the author named the maneuver as withheld, in which case both the maneuver and
+    # its finding go. Dropping the finding and keeping the maneuver name would still tell
+    # the panel the case turns on a Dix-Hallpike.
     exam_lines = []
     for item in case_details.get("physical_exam_findings") or []:
         if not isinstance(item, dict):
             continue
         maneuver = _clean(item.get("examination"))
         finding = _clean(item.get("findings"))
+        if maneuver and _is_suppressed_test(maneuver, withheld_terms):
+            withheld.append(maneuver)
+            continue
         if maneuver and finding:
             exam_lines.append(f"- {maneuver}: {finding}")
     if exam_lines:
@@ -382,6 +412,9 @@ def build_oracle_context(
             continue
         if _is_suppressed_test(test, suppression_terms):
             suppressed.append(test)
+            continue
+        if _is_suppressed_test(test, withheld_terms):
+            withheld.append(test)
             continue
         test_lines.append(f"- {test}")
     if test_lines:
@@ -412,6 +445,7 @@ def build_oracle_context(
         included_sections=included,
         excluded_sections=excluded,
         suppressed_tests=suppressed,
+        withheld_findings=withheld,
     )
 
 
@@ -451,6 +485,7 @@ def audit_leak(
     text: str,
     primary_diagnosis: str,
     extra_terms: list[str] | None = None,
+    withheld_terms: list[str] | None = None,
 ) -> LeakAuditResult:
     """Check the blinded context for the diagnosis, its tokens, and known synonyms.
 
@@ -464,6 +499,14 @@ def audit_leak(
     for term in extra_terms or []:
         if term and term.strip():
             terms.append((term.strip(), "synonym"))
+    # Verification for the construction step in `build_oracle_context`. That step drops
+    # the structured entries it can identify; this catches the same maneuver named in a
+    # free-text field it cannot filter — `physical_exam_findings_text` is one paragraph,
+    # and "Dix-Hallpike positive on the right" inside it is not removable without editing
+    # prose. Blocking is right: the author moves the finding, or stops withholding it.
+    for term in withheld_terms or []:
+        if term and term.strip():
+            terms.append((term.strip(), "withheld_finding"))
 
     hits: list[LeakHit] = []
     for term, kind in terms:

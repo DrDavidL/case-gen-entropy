@@ -159,7 +159,11 @@ def preflight(
     context = build_oracle_context(
         case_details, suppression_terms=_all_suppression_terms(orders)
     )
-    audit = audit_leak(context.text, version.primary_diagnosis or "")
+    audit = audit_leak(
+        context.text,
+        version.primary_diagnosis or "",
+        withheld_terms=list(case_details.get("oracle_withheld_findings") or []),
+    )
 
     resolved_stem = oracle_stems.get_stem(stem_version)
     roster = panel_roster.build_roster(version.oracle_specialty)
@@ -207,6 +211,21 @@ def preflight(
             "terms to search for and cannot vouch for the blinded context. Record the "
             "diagnosis before running the panel."
         )
+    elif any(h.kind == "withheld_finding" for h in audit.hits):
+        # Reported ahead of a diagnosis leak because it is the one an author can act on
+        # without judgement: the fix is to move the finding, not to weigh whether the hit
+        # is benign. Unlike a diagnosis leak this cannot be overridden at run time, so
+        # showing it here is the only warning before the run refuses.
+        terms = sorted({h.term for h in audit.hits if h.kind == "withheld_finding"})
+        ready, reason = False, "withheld_finding_present"
+        message = (
+            "The blinded context still contains "
+            + ", ".join(terms)
+            + ", which this case withholds from the panel. It is surviving in a "
+            "free-text field that cannot be filtered automatically. Move the finding "
+            "into an itemised exam or workup entry, or stop withholding it. This is not "
+            "overridable."
+        )
     elif not audit.passed:
         ready, reason = False, "diagnosis_leak"
     else:
@@ -224,6 +243,14 @@ def preflight(
         "included_sections": context.included_sections,
         "excluded_sections": context.excluded_sections,
         "suppressed_tests": context.suppressed_tests,
+        "withheld_findings": context.withheld_findings,
+        # Echoed back so the author can see what they asked to withhold, not just what
+        # matched. A term that was set but matched nothing is the failure mode here:
+        # "Dix Hallpike" configured against a record that names it "Dix-Hallpike test"
+        # looks like blinding and does nothing.
+        "withheld_findings_requested": list(
+            case_details.get("oracle_withheld_findings") or []
+        ),
         "leak_audit": audit.model_dump(),
         "stem_version": resolved_stem.version,
         "stem_label": resolved_stem.label,
@@ -328,7 +355,43 @@ async def run_oracle_for_case_version(
                 "message": EMPTY_CONTEXT_MESSAGE,
             }
 
-        audit = audit_leak(context.text, version.primary_diagnosis or "")
+        audit = audit_leak(
+            context.text,
+            version.primary_diagnosis or "",
+            withheld_terms=list(
+                (version.content_structured or {}).get("oracle_withheld_findings") or []
+            ),
+        )
+
+        # A withheld-finding hit is not overridable, and it is checked before the leak
+        # override is consulted. The override exists for a diagnosis term that matched
+        # for a benign reason — "CVA" under the father's history — where an author can
+        # look at the hit and say why it is harmless. There is no equivalent reading
+        # here: the author is the person who declared this finding off-limits, so a hit
+        # means the context still contains the thing they said the panel must not see.
+        # Letting the override clear it would let one screen quietly undo the other.
+        blinding_hits = [h for h in audit.hits if h.kind == "withheld_finding"]
+        if blinding_hits:
+            logger.error(
+                "Oracle blocked for case_version=%d: withheld finding(s) still present "
+                "in the blinded context (%s)",
+                case_version_id,
+                "; ".join(f"{h.term} in {h.section}" for h in blinding_hits[:5]),
+            )
+            return {
+                **summary,
+                "status": "blocked",
+                "reason": "withheld_finding_present",
+                "message": (
+                    "The blinded context still contains "
+                    + ", ".join(sorted({h.term for h in blinding_hits}))
+                    + ", which this case withholds from the panel. It survives in a "
+                    "free-text field the builder cannot filter. Move the finding into "
+                    "an itemised exam or workup entry, or stop withholding it."
+                ),
+                "leak_audit": audit.model_dump(),
+            }
+
         if not audit.passed and not leak_override_reason:
             # Blocking. Spending 75 calls on a context that names the diagnosis produces
             # a distribution that looks valid and measures nothing.

@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from backend.utils.final_orders_text import DEFAULT_SUPPRESSION_MESSAGE
 from backend.models.schemas import CaseInput
-from backend.models.structured_outputs import SimReadyCaseDetailsStructured
+from backend.models.structured_outputs import SimReadyCaseRecord
 
 
 class CasePreviewResponse(BaseModel):
@@ -346,11 +346,16 @@ class SimReadyStructuredUpdateRequest(BaseModel):
 
     `content_structured` is typed rather than a free dict on purpose. It is the contract
     the generated frontend types are built from (ADR-020), so a field renamed in
-    `SimReadyCaseDetailsStructured` has to surface as a validation error here and a type
-    error there, instead of as a key that silently stops arriving.
+    `SimReadyCaseRecord` has to surface as a validation error here and a type error there,
+    instead of as a key that silently stops arriving.
+
+    Typed as `SimReadyCaseRecord`, not as the generator's output model. An unknown key is
+    dropped by Pydantic rather than refused, so saving through the narrower model would
+    silently delete `oracle_withheld_findings` on the next edit -- the author's blinding
+    decision erased by an unrelated save, with no error anywhere.
     """
 
-    content_structured: SimReadyCaseDetailsStructured
+    content_structured: SimReadyCaseRecord
 
     # Editable alongside the clinical record because they live on the same screen. Null
     # means "leave as is" for each, so a caller can save the case document without
@@ -466,7 +471,9 @@ class OraclePreflightResponse(BaseModel):
 
     `ready: false` with reason `diagnosis_leak` is overridable with a recorded reason;
     `content_drift` and `render_detached` are not, because the panel would be rating a
-    case the learner will not see (ADR-017).
+    case the learner will not see (ADR-017). Nor is `withheld_finding_present`: the author
+    is the one who declared that finding off-limits, so an override would let one screen
+    quietly undo the other.
     """
 
     case_id: int | None = None
@@ -482,6 +489,11 @@ class OraclePreflightResponse(BaseModel):
     included_sections: list[str] = Field(default_factory=list)
     excluded_sections: list[str] = Field(default_factory=list)
     suppressed_tests: list[str] = Field(default_factory=list)
+    # Entries dropped because this case names them in `oracle_withheld_findings`, and the
+    # terms the author asked for. Both, because the gap between them is the failure mode:
+    # a term that matches nothing reads as blinding and does nothing.
+    withheld_findings: list[str] = Field(default_factory=list)
+    withheld_findings_requested: list[str] = Field(default_factory=list)
     primary_diagnosis_withheld: bool = False
     stem_version: str | None = None
     stem_label: str | None = None
@@ -532,7 +544,7 @@ class AuthCheckResponse(BaseModel):
 class SimReadyRenderPreviewRequest(BaseModel):
     """Render a structured record to markdown without saving anything."""
 
-    content_structured: SimReadyCaseDetailsStructured
+    content_structured: SimReadyCaseRecord
 
 
 class SimReadyRenderPreviewResponse(BaseModel):
