@@ -40,6 +40,19 @@ and data level; the visual result has never been seen by the person who wrote it
 
 ### Open right now
 
+- **Test-run feedback from 2026-08-18 is built, not deployed** (branch `feedback-2026-08-19` in both
+  repos). Six items from Cory and Alex: the exam-specificity gate, Oracle withholding (`ADR-023`),
+  the Final Orders feedback section, the phase-4 delayed-results framing, the voice-page notices and
+  layout, and a dead generator link that turned out to be the retired ACI app. **Nothing is deployed
+  and nothing is committed.** What still needs a human:
+  - Set `oracle_withheld_findings` to `Dix-Hallpike` / `HINTS` on cases 139, 140, 150, 151 and re-run
+    their panels. Their current distributions were produced before this existed.
+  - Build the human expert rater packet against the same blinded context. `ADR-023` makes this a
+    correctness requirement, not a nicety, and Cory wants review starting before 2026-08-31 for a
+    late-September reunion.
+  - Nobody has driven any of this in a browser. The layout fix in particular is a flex-sizing change
+    verified by reasoning and a type check, not by looking at it.
+
 - **`direct-sim` PR #13 merged 2026-07-31** (urllib3, eslint 10, postcss, react-router 8, CI
   permission fix). Its shipped-dependency audit is now **zero**. The merge broke the image build
   and was repaired in `114320c`; see failure 4 below before touching that lockfile

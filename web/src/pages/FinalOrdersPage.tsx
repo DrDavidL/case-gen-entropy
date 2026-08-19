@@ -294,11 +294,19 @@ export default function FinalOrdersPage() {
   if (loading) return <p className="text-sm text-ink-500">Loading…</p>;
 
   const leakBlocked = preflight?.reason === 'diagnosis_leak';
-  const hits = (preflight?.leak_audit?.hits ?? []) as {
+  const allHits = (preflight?.leak_audit?.hits ?? []) as {
     term?: string;
+    kind?: string;
     section?: string;
     snippet?: string;
   }[];
+  // Split by kind. Both come from one audit, but they are different problems with
+  // different remedies, and the diagnosis-leak copy below ("the diagnosis appears in what
+  // the raters would see") is simply false about a withheld maneuver.
+  const hits = allHits.filter((h) => h.kind !== 'withheld_finding');
+  const blindingHits = allHits.filter((h) => h.kind === 'withheld_finding');
+  const withheld = (preflight?.withheld_findings ?? []) as string[];
+  const withheldRequested = (preflight?.withheld_findings_requested ?? []) as string[];
 
   /**
    * Why Run cannot be pressed, or null when it can.
@@ -488,7 +496,60 @@ export default function FinalOrdersPage() {
               <span className={`chip ${preflight.leak_audit?.passed ? 'chip-good' : 'chip-warn'}`}>
                 leak audit {preflight.leak_audit?.passed ? 'clean' : 'HIT'}
               </span>
+              {withheldRequested.length > 0 && (
+                <span className="chip chip-neutral">
+                  {withheld.length} of {withheldRequested.length} withheld term(s) matched
+                </span>
+              )}
             </div>
+
+            {blindingHits.length > 0 && (
+              <div className="notice notice-warn space-y-2">
+                <p className="font-medium">
+                  A withheld finding is still in what the raters would see.
+                </p>
+                <ul className="space-y-1">
+                  {blindingHits.map((h, i) => (
+                    <li key={i} className="text-xs">
+                      <span className="chip chip-warn">{h.term}</span>{' '}
+                      <span className="text-ink-600">in {h.section}</span>
+                      {h.snippet && (
+                        <pre className="mt-1 overflow-x-auto rounded bg-white/60 p-1">
+                          {h.snippet}
+                        </pre>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs">
+                  Itemised exam and workup entries are dropped automatically; free-text
+                  fields cannot be. Move the finding into an itemised entry in{' '}
+                  <Link to={`/cases/${id}/edit`} className="underline">
+                    the case editor
+                  </Link>
+                  , or stop withholding it. <strong>This is not overridable</strong> — you
+                  are the person who declared it off-limits.
+                </p>
+              </div>
+            )}
+
+            {withheldRequested.length > 0 && withheld.length < withheldRequested.length && (
+              <p className="notice notice-warn text-xs">
+                <strong>
+                  {withheldRequested.length - withheld.length} withheld term(s) matched
+                  nothing in this case.
+                </strong>{' '}
+                A term that matches nothing looks like blinding and does nothing. Check the
+                spelling against how the record names the finding.
+              </p>
+            )}
+
+            {withheld.length > 0 && (
+              <p className="text-xs text-ink-500">
+                Withheld from the panel: {withheld.join(', ')}. Give human expert raters the
+                same blinded context, or the two rating sets are not comparable.
+              </p>
+            )}
 
             {preflight.message && <p className="notice notice-warn">{preflight.message}</p>}
 
